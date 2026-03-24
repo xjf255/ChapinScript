@@ -1,4 +1,4 @@
-banda ContadorChapín {
+banda ContadorChapin {
 
     barrio:
         fijo cabal LIMITE = 5
@@ -9,7 +9,7 @@ banda ContadorChapín {
         cachito inicial
         casaca activo
 
-        ContadorChapín(chisme nom, cabal t, pisto p, pistazo a, cachito i, casaca estado) {
+        ContadorChapin(chisme nom, cabal t, pisto p, pistazo a, cachito i, casaca estado) {
             vos.nombre = nom
             vos.total = t
             vos.promedio = p
@@ -90,7 +90,7 @@ banda ContadorChapín {
 }
 
 nimais main() {
-    banda ContadorChapín contador = ContadorChapín("Fernando", 3, 10.5, 1500.755, 'F', deplano)
+    banda ContadorChapin contador = ContadorChapin("Fernando", 3, 10.5, 1500.755, 'F', deplano)
 
     contador.mostrarEstado()
 
