@@ -1,0 +1,57 @@
+import java_cup.runtime.*;
+
+terminal PRINT, IF, ELSE, SWITCH, CASE, DEFAULT, FOR, WHILE, DO, BREAK;
+terminal CONTINUE, RETURN, INT, FLOAT, DOUBLE, CHAR, BOOL, VOID, STRING, CONST, CLASS, THIS, TRY, CATCH;
+terminal THROW, PUBLIC, PRIVATE, TRUE, FALSE, SEMICOLON, COMMA, DOT;
+terminal QUESTION, COLON, LEFT_PAREN, RIGHT_PAREN, LEFT_BRACE, RIGHT_BRACE, LEFT_BRACKET, RIGHT_BRACKET;
+terminal EQUALS, NOT_EQUALS, LESS_EQUAL, GREATER_EQUAL, AND, OR, ASSIGN, LESS_THAN;
+terminal GREATER_THAN, PLUS, MINUS, MULTIPLY, DIVIDE, NOT;
+
+terminal String IDENTIFIER;
+terminal String STRING_LITERAL;
+terminal Integer INTEGER_LITERAL;
+terminal Double DECIMAL_LITERAL;
+
+/* Programa */
+non terminal program;
+non terminal statement_list;
+non terminal statement;
+
+non terminal decl_var;
+non terminal decl_func;
+non terminal decl_class;
+non terminal param_list;
+non terminal param;
+non terminal if_stmt;
+non terminal while_stmt;
+non terminal for_stmt;
+non terminal do_while_stmt;
+non terminal switch_stmt;
+non terminal case_list;
+non terminal case_clause;
+non terminal expression;
+non terminal assign_expr;
+non terminal or_expr;
+non terminal and_expr;
+non terminal eq_expr;
+non terminal rel_expr;
+non terminal add_expr;
+non terminal mul_expr;
+non terminal unary_expr;
+non terminal primary;
+non terminal literal;
+non terminal func_call;
+non terminal arg_list;
+non terminal type;
+
+precedence left OR;
+precedence left AND;
+precedence left EQUALS, NOT_EQUALS;
+precedence left LESS_THAN, GREATER_THAN, LESS_EQUAL, GREATER_EQUAL;
+precedence left PLUS, MINUS;
+precedence left MULTIPLY, DIVIDE;
+precedence right NOT, UMINUS;
+precedence left DOT;
+precedence right ASSIGN;
+
+start with program;

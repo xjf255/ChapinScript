@@ -14,4 +14,22 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
+    <dependencies>
+        <dependency>
+            <groupId>java_cup</groupId>
+            <artifactId>java_cup_runtime</artifactId>
+            <version>11b</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/java-cup-11b-runtime.jar</systemPath>
+        </dependency>
+
+        <dependency>
+            <groupId>java_cup</groupId>
+            <artifactId>java_cup</artifactId>
+            <version>11b</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/java-cup-11b.jar</systemPath>
+        </dependency>
+    </dependencies>
+
 </project>
