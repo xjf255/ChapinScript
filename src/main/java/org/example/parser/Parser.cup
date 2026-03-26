@@ -1,3 +1,5 @@
+package org.example.parser;
+
 import java_cup.runtime.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,10 +22,10 @@ parser code {:
 
         @Override
         public String toString() {
-            return type + ": " + message +
+            return "<" + type + ": " + message +
                    " en línea " + line +
                    ", columna " + column +
-                   ", cerca de '" + lexeme + "'";
+                   ", cerca de '" + lexeme + "' />";
         }
     }
 
@@ -35,13 +37,34 @@ parser code {:
 
     private void addSyntaxError(Symbol token, String message) {
         String lexeme = "EOF";
+        int line = -1;
+        int column = -1;
 
-        if (token != null && token.value != null) {
-            lexeme = token.value.toString();
+        if (token != null) {
+            if (token.value != null) {
+                lexeme = token.value.toString();
+            }
+            line = token.left;
+            column = token.right;
         }
 
-        int line = token != null ? token.left : -1;
-        int column = token != null ? token.right : -1;
+        addSyntaxError(line, column, lexeme, message);
+    }
+
+    private void addSyntaxError(int line, int column, String lexeme, String message) {
+        if (lexeme == null || lexeme.isBlank()) {
+            lexeme = "desconocido";
+        }
+
+        if (!syntaxErrors.isEmpty()) {
+            SyntaxError last = syntaxErrors.get(syntaxErrors.size() - 1);
+            if (last.line == line &&
+                last.column == column &&
+                last.lexeme.equals(lexeme) &&
+                last.message.equals(message)) {
+                return;
+            }
+        }
 
         syntaxErrors.add(new SyntaxError(
             "Sintáctico",
@@ -60,6 +83,7 @@ parser code {:
     @Override
     public void unrecovered_syntax_error(Symbol cur_token) throws Exception {
         addSyntaxError(cur_token, "Error sintáctico no recuperable");
+        throw new Exception("Error sintáctico no recuperable");
     }
 
     @Override
@@ -67,13 +91,7 @@ parser code {:
         if (info instanceof Symbol) {
             addSyntaxError((Symbol) info, message);
         } else {
-            syntaxErrors.add(new SyntaxError(
-                "Sintáctico",
-                message,
-                -1,
-                -1,
-                "desconocido"
-            ));
+            addSyntaxError(-1, -1, "desconocido", message);
         }
     }
 
@@ -91,10 +109,10 @@ terminal QUESTION, COLON, LEFT_PAREN, RIGHT_PAREN, LEFT_BRACE, RIGHT_BRACE, LEFT
 terminal EQUALS, NOT_EQUALS, LESS_EQUAL, GREATER_EQUAL, AND, OR, ASSIGN, LESS_THAN;
 terminal GREATER_THAN, PLUS, MINUS, MULTIPLY, DIVIDE, NOT, UMINUS;
 
-terminal String  IDENTIFIER;
-terminal String  STRING_LITERAL;
+terminal String IDENTIFIER;
+terminal String STRING_LITERAL;
 terminal Integer INTEGER_LITERAL;
-terminal Double  DECIMAL_LITERAL;
+terminal Double DECIMAL_LITERAL;
 
 /* Programa */
 non terminal program;
@@ -156,15 +174,18 @@ precedence left EQUALS, NOT_EQUALS;
 precedence left LESS_THAN, GREATER_THAN, LESS_EQUAL, GREATER_EQUAL;
 precedence left PLUS, MINUS;
 precedence left MULTIPLY, DIVIDE;
-precedence right NOT, UMINUS;
+precedence right NOT;
+precedence right UMINUS;
 precedence left DOT;
 
 start with program;
 
-program ::= statement_list;
+program ::= statement_list
+          ;
 
 statement_list ::= statement_list statement
-                 | ;
+                 |
+                 ;
 
 statement ::= decl
             | decl_class
@@ -181,130 +202,183 @@ statement ::= decl
             | CONTINUE SEMICOLON
             | PRINT LEFT_PAREN expression RIGHT_PAREN SEMICOLON
             | expression SEMICOLON
-            | error SEMICOLON
+            | error:e SEMICOLON
               {:
-                  report_error("Sentencia inválida", e);
+                  addSyntaxError(eleft, eright, "error", "Sentencia inválida");
               :}
             ;
 
-block ::= LEFT_BRACE statement_list RIGHT_BRACE;
+block ::= LEFT_BRACE statement_list RIGHT_BRACE
+        ;
 
 access_modifier ::= PUBLIC
-                  | PRIVATE;
+                  | PRIVATE
+                  ;
 
 decl ::= access_modifier type IDENTIFIER decl_suffix
        | type IDENTIFIER decl_suffix
        | CONST type IDENTIFIER ASSIGN expression SEMICOLON
        | access_modifier VOID IDENTIFIER LEFT_PAREN param_list RIGHT_PAREN block
-       | VOID IDENTIFIER LEFT_PAREN param_list RIGHT_PAREN block;
+       | VOID IDENTIFIER LEFT_PAREN param_list RIGHT_PAREN block
+       ;
 
 decl_suffix ::= SEMICOLON
               | ASSIGN expression SEMICOLON
               | LEFT_PAREN param_list RIGHT_PAREN block
               | LEFT_BRACKET INTEGER_LITERAL RIGHT_BRACKET SEMICOLON
-              | LEFT_BRACKET INTEGER_LITERAL RIGHT_BRACKET ASSIGN LEFT_BRACE array_values RIGHT_BRACE SEMICOLON;
+              | LEFT_BRACKET INTEGER_LITERAL RIGHT_BRACKET ASSIGN LEFT_BRACE array_values RIGHT_BRACE SEMICOLON
+              ;
 
-decl_class ::= CLASS IDENTIFIER LEFT_BRACE class_member_list RIGHT_BRACE;
+decl_class ::= CLASS IDENTIFIER LEFT_BRACE class_member_list RIGHT_BRACE
+             ;
 
 class_member_list ::= class_member_list class_member
-                    | ;
+                    |
+                    ;
 
 class_member ::= decl
-               | decl_constructors;
+               | decl_constructors
+               ;
 
-decl_constructors ::= IDENTIFIER LEFT_PAREN param_list RIGHT_PAREN block;
+decl_constructors ::= IDENTIFIER LEFT_PAREN param_list RIGHT_PAREN block
+                    ;
 
 array_values ::= expression
-               | array_values COMMA expression;
+               | array_values COMMA expression
+               ;
 
 param_list ::= non_empty_param_list
-             | ;
+             |
+             ;
 
 non_empty_param_list ::= non_empty_param_list COMMA param
-                       | param;
+                       | param
+                       ;
 
 param ::= type IDENTIFIER
-        | type IDENTIFIER ASSIGN literal;
+        | type IDENTIFIER ASSIGN literal
+        ;
 
 type ::= INT
        | FLOAT
        | DOUBLE
        | CHAR
        | BOOL
-       | STRING;
+       | STRING
+       ;
 
 if_stmt ::= IF LEFT_PAREN expression RIGHT_PAREN block
           | IF LEFT_PAREN expression RIGHT_PAREN block ELSE block
-          | IF LEFT_PAREN expression RIGHT_PAREN block ELSE if_stmt;
+          | IF LEFT_PAREN expression RIGHT_PAREN block ELSE if_stmt
+          | IF LEFT_PAREN error:e RIGHT_PAREN block
+            {:
+                addSyntaxError(eleft, eright, "error", "Condición inválida en if");
+            :}
+          ;
 
-while_stmt ::= WHILE LEFT_PAREN expression RIGHT_PAREN block;
+while_stmt ::= WHILE LEFT_PAREN expression RIGHT_PAREN block
+             | WHILE LEFT_PAREN error:e RIGHT_PAREN block
+               {:
+                   addSyntaxError(eleft, eright, "error", "Condición inválida en while");
+               :}
+             ;
 
-do_while_stmt ::= DO block WHILE LEFT_PAREN expression RIGHT_PAREN SEMICOLON;
+do_while_stmt ::= DO block WHILE LEFT_PAREN expression RIGHT_PAREN SEMICOLON
+                ;
 
-for_stmt ::= FOR LEFT_PAREN for_init SEMICOLON expression SEMICOLON for_update RIGHT_PAREN block;
+for_stmt ::= FOR LEFT_PAREN for_init SEMICOLON expression SEMICOLON for_update RIGHT_PAREN block
+           | FOR LEFT_PAREN error:e RIGHT_PAREN block
+             {:
+                 addSyntaxError(eleft, eright, "error", "Estructura inválida en for");
+             :}
+           ;
 
 for_init ::= type IDENTIFIER ASSIGN expression
            | type IDENTIFIER
            | expression
-           | ;
+           |
+           ;
 
 for_update ::= expression
-             | ;
+             |
+             ;
 
-switch_stmt ::= SWITCH LEFT_PAREN expression RIGHT_PAREN LEFT_BRACE case_list RIGHT_BRACE;
+switch_stmt ::= SWITCH LEFT_PAREN expression RIGHT_PAREN LEFT_BRACE case_list RIGHT_BRACE
+              | SWITCH LEFT_PAREN error:e RIGHT_PAREN LEFT_BRACE case_list RIGHT_BRACE
+                {:
+                    addSyntaxError(eleft, eright, "error", "Expresión inválida en switch");
+                :}
+              ;
 
 case_list ::= case_list case_clause
-            | ;
+            |
+            ;
 
 case_clause ::= CASE expression COLON statement_list
-              | DEFAULT COLON statement_list;
+              | CASE literal COLON statement_list
+              | DEFAULT COLON statement_list
+              ;
 
-try_stmt ::= TRY block CATCH LEFT_PAREN param RIGHT_PAREN block;
+try_stmt ::= TRY block CATCH LEFT_PAREN param RIGHT_PAREN block
+           ;
 
-throw_stmt ::= THROW expression SEMICOLON;
+throw_stmt ::= THROW expression SEMICOLON
+             ;
 
-expression ::= assign_expr;
+expression ::= assign_expr
+             ;
 
 assign_expr ::= lvalue ASSIGN assign_expr
               | array_access ASSIGN assign_expr
-              | ternary_expr;
+              | ternary_expr
+              ;
 
 ternary_expr ::= or_expr
-               | or_expr QUESTION expression COLON ternary_expr;
+               | or_expr QUESTION expression COLON ternary_expr
+               ;
 
 or_expr ::= or_expr OR and_expr
-          | and_expr;
+          | and_expr
+          ;
 
 and_expr ::= and_expr AND eq_expr
-           | eq_expr;
+           | eq_expr
+           ;
 
 eq_expr ::= eq_expr EQUALS rel_expr
           | eq_expr NOT_EQUALS rel_expr
-          | rel_expr;
+          | rel_expr
+          ;
 
 rel_expr ::= rel_expr LESS_THAN add_expr
            | rel_expr GREATER_THAN add_expr
            | rel_expr LESS_EQUAL add_expr
            | rel_expr GREATER_EQUAL add_expr
-           | add_expr;
+           | add_expr
+           ;
 
 add_expr ::= add_expr PLUS mul_expr
            | add_expr MINUS mul_expr
-           | mul_expr;
+           | mul_expr
+           ;
 
 mul_expr ::= mul_expr MULTIPLY unary_expr
            | mul_expr DIVIDE unary_expr
-           | unary_expr;
+           | unary_expr
+           ;
 
 unary_expr ::= NOT unary_expr
              | MINUS unary_expr %prec UMINUS
-             | primary;
+             | primary
+             ;
 
 lvalue ::= IDENTIFIER
          | THIS DOT IDENTIFIER
-         | primary DOT IDENTIFIER;
+         | primary DOT IDENTIFIER
+         ;
 
-array_access ::= IDENTIFIER LEFT_BRACKET expression RIGHT_BRACKET;
+array_access ::= IDENTIFIER LEFT_BRACKET expression RIGHT_BRACKET
+               ;
 
 primary ::= literal
           | IDENTIFIER
@@ -314,18 +388,23 @@ primary ::= literal
           | THIS DOT func_call
           | primary DOT IDENTIFIER
           | primary DOT func_call
-          | LEFT_PAREN expression RIGHT_PAREN;
+          | LEFT_PAREN expression RIGHT_PAREN
+          ;
 
-func_call ::= IDENTIFIER LEFT_PAREN arg_list RIGHT_PAREN;
+func_call ::= IDENTIFIER LEFT_PAREN arg_list RIGHT_PAREN
+            ;
 
 arg_list ::= non_empty_arg_list
-           | ;
+           |
+           ;
 
 non_empty_arg_list ::= non_empty_arg_list COMMA expression
-                     | expression;
+                     | expression
+                     ;
 
 literal ::= INTEGER_LITERAL
           | DECIMAL_LITERAL
           | STRING_LITERAL
           | TRUE
-          | FALSE;
+          | FALSE
+          ;

@@ -31,6 +31,6 @@ public class Token {
 
     @Override
     public String toString() {
-        return "<" + lexeme + ", " + type + "> position: [" + line + ":" + column + "]\n";
+        return "<" + lexeme + ", " + type + " [" + line + ":" + column + "]/>\n";
     }
 }
