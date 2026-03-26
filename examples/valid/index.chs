@@ -1,76 +1,75 @@
 banda ContadorChapin {
 
-    barrio:
-        fijo cabal LIMITE = 5
-        chisme nombre
-        cabal total
-        pisto promedio
-        pistazo ahorro
-        cachito inicial
-        casaca activo
+        barrio cabal LIMITE = 5;
+        chisme nombre;
+        cabal total;
+        pisto promedio;
+        pistazo ahorro;
+        cachito inicial;
+        casaca activo;
 
         ContadorChapin(chisme nom, cabal t, pisto p, pistazo a, cachito i, casaca estado) {
-            vos.nombre = nom
-            vos.total = t
-            vos.promedio = p
-            vos.ahorro = a
-            vos.inicial = i
-            vos.activo = estado
+            vos.nombre = nom;
+            vos.total = t;
+            vos.promedio = p;
+            vos.ahorro = a;
+            vos.inicial = i;
+            vos.activo = estado;
         }
 
         nimais mostrarEstado() {
-            chotear("==== ESTADO DEL CONTADOR ====")
-            chotear("Nombre: " + vos.nombre)
-            chotear("Total: " + vos.total)
-            chotear("Promedio: " + vos.promedio)
-            chotear("Ahorro: " + vos.ahorro)
-            chotear("Inicial: " + vos.inicial)
+            chotear("==== ESTADO DEL CONTADOR ====");
+            chotear("Nombre: " + vos.nombre);
+            chotear("Total: " + vos.total);
+            chotear("Promedio: " + vos.promedio);
+            chotear("Ahorro: " + vos.ahorro);
+            chotear("Inicial: " + vos.inicial);
 
             simon (vos.activo == deplano) {
-                chotear("Estado: activo")
+                chotear("Estado: activo");
             } chapus {
-                chotear("Estado: inactivo")
+                chotear("Estado: inactivo");
             }
         }
 
         cabal procesar(cabal numero) {
-            cabal suma = 0
+            cabal suma = 0;
 
             vuelta (cabal i = 0; i < numero; i = i + 1) {
                 simon (i == 2) {
-                    chanin
+                    chanin;
                 }
 
                 simon (i > 10) {
-                    cuaje
+                    cuaje;
                 }
 
-                suma = suma + i
+                suma = suma + i;
             }
 
             seguile (suma < 20) {
-                suma = suma + 2
+                suma = suma + 2;
             }
 
             dale {
-                suma = suma - 1
+                suma = suma - 1;
             } seguile (suma > 15)
 
             chiripa (numero) {
                 wasa 1:
-                    chotear("Caso 1")
+                    chotear("Caso 1");
                     cuaje
 
                 wasa 2:
-                    chotear("Caso 2")
+                    chotear("Caso 2");
                     cuaje
 
                 wasa 3:
-                    chotear("Caso 3")
+                    chotear("Caso 3");
                     cuaje
 
                 porsiacaso:
-                    chotear("Caso no contemplado")
+                    chotear("Caso no contemplado");
                     cuaje
             }
 
@@ -97,26 +96,26 @@ nimais main() {
     calale {
         contador.validar(5)
 
-        cabal resultado = contador.procesar(7)
-        chotear("Resultado final: " + resultado)
+        cabal resultado = contador.procesar(7);
+        chotear("Resultado final: " + resultado);
 
         casaca bandera = nel
 
         simon (resultado > 10) {
-            bandera = deplano
+            bandera = deplano;
         } chapus {
-            bandera = nel
+            bandera = nel;
         }
 
         simon (bandera == deplano) {
-            chotear("La bandera quedó en verdadero")
+            chotear("La bandera quedó en verdadero");
         } chapus {
-            chotear("La bandera quedó en falso")
+            chotear("La bandera quedó en falso");
         }
 
     } atrapalo (chisme error) {
-        chotear("Se atrapó un error: " + error)
+        chotear("Se atrapó un error: " + error);
     }
 
-    chotear("Programa finalizado")
+    chotear("Programa finalizado");
 }

@@ -1,36 +1,138 @@
 import java_cup.runtime.*;
+import java.util.ArrayList;
+import java.util.List;
+
+parser code {:
+    public static class SyntaxError {
+        public final String type;
+        public final String message;
+        public final int line;
+        public final int column;
+        public final String lexeme;
+
+        public SyntaxError(String type, String message, int line, int column, String lexeme) {
+            this.type = type;
+            this.message = message;
+            this.line = line;
+            this.column = column;
+            this.lexeme = lexeme;
+        }
+
+        @Override
+        public String toString() {
+            return type + ": " + message +
+                   " en línea " + line +
+                   ", columna " + column +
+                   ", cerca de '" + lexeme + "'";
+        }
+    }
+
+    private final List<SyntaxError> syntaxErrors = new ArrayList<>();
+
+    public List<SyntaxError> getSyntaxErrors() {
+        return syntaxErrors;
+    }
+
+    private void addSyntaxError(Symbol token, String message) {
+        String lexeme = "EOF";
+
+        if (token != null && token.value != null) {
+            lexeme = token.value.toString();
+        }
+
+        int line = token != null ? token.left : -1;
+        int column = token != null ? token.right : -1;
+
+        syntaxErrors.add(new SyntaxError(
+            "Sintáctico",
+            message,
+            line,
+            column,
+            lexeme
+        ));
+    }
+
+    @Override
+    public void syntax_error(Symbol cur_token) {
+        addSyntaxError(cur_token, "Símbolo inesperado");
+    }
+
+    @Override
+    public void unrecovered_syntax_error(Symbol cur_token) throws Exception {
+        addSyntaxError(cur_token, "Error sintáctico no recuperable");
+    }
+
+    @Override
+    public void report_error(String message, Object info) {
+        if (info instanceof Symbol) {
+            addSyntaxError((Symbol) info, message);
+        } else {
+            syntaxErrors.add(new SyntaxError(
+                "Sintáctico",
+                message,
+                -1,
+                -1,
+                "desconocido"
+            ));
+        }
+    }
+
+    @Override
+    public void report_fatal_error(String message, Object info) throws Exception {
+        report_error(message, info);
+        throw new Exception(message);
+    }
+:};
 
 terminal PRINT, IF, ELSE, SWITCH, CASE, DEFAULT, FOR, WHILE, DO, BREAK;
 terminal CONTINUE, RETURN, INT, FLOAT, DOUBLE, CHAR, BOOL, VOID, STRING, CONST, CLASS, THIS, TRY, CATCH;
 terminal THROW, PUBLIC, PRIVATE, TRUE, FALSE, SEMICOLON, COMMA, DOT;
 terminal QUESTION, COLON, LEFT_PAREN, RIGHT_PAREN, LEFT_BRACE, RIGHT_BRACE, LEFT_BRACKET, RIGHT_BRACKET;
 terminal EQUALS, NOT_EQUALS, LESS_EQUAL, GREATER_EQUAL, AND, OR, ASSIGN, LESS_THAN;
-terminal GREATER_THAN, PLUS, MINUS, MULTIPLY, DIVIDE, NOT;
+terminal GREATER_THAN, PLUS, MINUS, MULTIPLY, DIVIDE, NOT, UMINUS;
 
-terminal String IDENTIFIER;
-terminal String STRING_LITERAL;
+terminal String  IDENTIFIER;
+terminal String  STRING_LITERAL;
 terminal Integer INTEGER_LITERAL;
-terminal Double DECIMAL_LITERAL;
+terminal Double  DECIMAL_LITERAL;
 
 /* Programa */
 non terminal program;
 non terminal statement_list;
 non terminal statement;
+non terminal block;
 
-non terminal decl_var;
-non terminal decl_func;
+/* Declaraciones */
+non terminal decl;
+non terminal decl_suffix;
 non terminal decl_class;
+non terminal decl_constructors;
+non terminal class_member;
+non terminal class_member_list;
+non terminal access_modifier;
 non terminal param_list;
+non terminal non_empty_param_list;
 non terminal param;
+non terminal type;
+non terminal array_values;
+
+/* Control */
 non terminal if_stmt;
 non terminal while_stmt;
 non terminal for_stmt;
+non terminal for_init;
+non terminal for_update;
 non terminal do_while_stmt;
+non terminal try_stmt;
+non terminal throw_stmt;
 non terminal switch_stmt;
 non terminal case_list;
 non terminal case_clause;
+
+/* Expresiones */
 non terminal expression;
 non terminal assign_expr;
+non terminal ternary_expr;
 non terminal or_expr;
 non terminal and_expr;
 non terminal eq_expr;
@@ -42,8 +144,12 @@ non terminal primary;
 non terminal literal;
 non terminal func_call;
 non terminal arg_list;
-non terminal type;
+non terminal non_empty_arg_list;
+non terminal lvalue;
+non terminal array_access;
 
+precedence right ASSIGN;
+precedence right QUESTION, COLON;
 precedence left OR;
 precedence left AND;
 precedence left EQUALS, NOT_EQUALS;
@@ -52,6 +158,174 @@ precedence left PLUS, MINUS;
 precedence left MULTIPLY, DIVIDE;
 precedence right NOT, UMINUS;
 precedence left DOT;
-precedence right ASSIGN;
 
 start with program;
+
+program ::= statement_list;
+
+statement_list ::= statement_list statement
+                 | ;
+
+statement ::= decl
+            | decl_class
+            | if_stmt
+            | while_stmt
+            | for_stmt
+            | do_while_stmt
+            | switch_stmt
+            | try_stmt
+            | throw_stmt
+            | RETURN expression SEMICOLON
+            | RETURN SEMICOLON
+            | BREAK SEMICOLON
+            | CONTINUE SEMICOLON
+            | PRINT LEFT_PAREN expression RIGHT_PAREN SEMICOLON
+            | expression SEMICOLON
+            | error SEMICOLON
+              {:
+                  report_error("Sentencia inválida", e);
+              :}
+            ;
+
+block ::= LEFT_BRACE statement_list RIGHT_BRACE;
+
+access_modifier ::= PUBLIC
+                  | PRIVATE;
+
+decl ::= access_modifier type IDENTIFIER decl_suffix
+       | type IDENTIFIER decl_suffix
+       | CONST type IDENTIFIER ASSIGN expression SEMICOLON
+       | access_modifier VOID IDENTIFIER LEFT_PAREN param_list RIGHT_PAREN block
+       | VOID IDENTIFIER LEFT_PAREN param_list RIGHT_PAREN block;
+
+decl_suffix ::= SEMICOLON
+              | ASSIGN expression SEMICOLON
+              | LEFT_PAREN param_list RIGHT_PAREN block
+              | LEFT_BRACKET INTEGER_LITERAL RIGHT_BRACKET SEMICOLON
+              | LEFT_BRACKET INTEGER_LITERAL RIGHT_BRACKET ASSIGN LEFT_BRACE array_values RIGHT_BRACE SEMICOLON;
+
+decl_class ::= CLASS IDENTIFIER LEFT_BRACE class_member_list RIGHT_BRACE;
+
+class_member_list ::= class_member_list class_member
+                    | ;
+
+class_member ::= decl
+               | decl_constructors;
+
+decl_constructors ::= IDENTIFIER LEFT_PAREN param_list RIGHT_PAREN block;
+
+array_values ::= expression
+               | array_values COMMA expression;
+
+param_list ::= non_empty_param_list
+             | ;
+
+non_empty_param_list ::= non_empty_param_list COMMA param
+                       | param;
+
+param ::= type IDENTIFIER
+        | type IDENTIFIER ASSIGN literal;
+
+type ::= INT
+       | FLOAT
+       | DOUBLE
+       | CHAR
+       | BOOL
+       | STRING;
+
+if_stmt ::= IF LEFT_PAREN expression RIGHT_PAREN block
+          | IF LEFT_PAREN expression RIGHT_PAREN block ELSE block
+          | IF LEFT_PAREN expression RIGHT_PAREN block ELSE if_stmt;
+
+while_stmt ::= WHILE LEFT_PAREN expression RIGHT_PAREN block;
+
+do_while_stmt ::= DO block WHILE LEFT_PAREN expression RIGHT_PAREN SEMICOLON;
+
+for_stmt ::= FOR LEFT_PAREN for_init SEMICOLON expression SEMICOLON for_update RIGHT_PAREN block;
+
+for_init ::= type IDENTIFIER ASSIGN expression
+           | type IDENTIFIER
+           | expression
+           | ;
+
+for_update ::= expression
+             | ;
+
+switch_stmt ::= SWITCH LEFT_PAREN expression RIGHT_PAREN LEFT_BRACE case_list RIGHT_BRACE;
+
+case_list ::= case_list case_clause
+            | ;
+
+case_clause ::= CASE expression COLON statement_list
+              | DEFAULT COLON statement_list;
+
+try_stmt ::= TRY block CATCH LEFT_PAREN param RIGHT_PAREN block;
+
+throw_stmt ::= THROW expression SEMICOLON;
+
+expression ::= assign_expr;
+
+assign_expr ::= lvalue ASSIGN assign_expr
+              | array_access ASSIGN assign_expr
+              | ternary_expr;
+
+ternary_expr ::= or_expr
+               | or_expr QUESTION expression COLON ternary_expr;
+
+or_expr ::= or_expr OR and_expr
+          | and_expr;
+
+and_expr ::= and_expr AND eq_expr
+           | eq_expr;
+
+eq_expr ::= eq_expr EQUALS rel_expr
+          | eq_expr NOT_EQUALS rel_expr
+          | rel_expr;
+
+rel_expr ::= rel_expr LESS_THAN add_expr
+           | rel_expr GREATER_THAN add_expr
+           | rel_expr LESS_EQUAL add_expr
+           | rel_expr GREATER_EQUAL add_expr
+           | add_expr;
+
+add_expr ::= add_expr PLUS mul_expr
+           | add_expr MINUS mul_expr
+           | mul_expr;
+
+mul_expr ::= mul_expr MULTIPLY unary_expr
+           | mul_expr DIVIDE unary_expr
+           | unary_expr;
+
+unary_expr ::= NOT unary_expr
+             | MINUS unary_expr %prec UMINUS
+             | primary;
+
+lvalue ::= IDENTIFIER
+         | THIS DOT IDENTIFIER
+         | primary DOT IDENTIFIER;
+
+array_access ::= IDENTIFIER LEFT_BRACKET expression RIGHT_BRACKET;
+
+primary ::= literal
+          | IDENTIFIER
+          | array_access
+          | func_call
+          | THIS DOT IDENTIFIER
+          | THIS DOT func_call
+          | primary DOT IDENTIFIER
+          | primary DOT func_call
+          | LEFT_PAREN expression RIGHT_PAREN;
+
+func_call ::= IDENTIFIER LEFT_PAREN arg_list RIGHT_PAREN;
+
+arg_list ::= non_empty_arg_list
+           | ;
+
+non_empty_arg_list ::= non_empty_arg_list COMMA expression
+                     | expression;
+
+literal ::= INTEGER_LITERAL
+          | DECIMAL_LITERAL
+          | STRING_LITERAL
+          | TRUE
+          | FALSE;
