@@ -36,6 +36,6 @@ public class LexicalError {
                 ", description='" + description + '\'' +
                 "," + line +
                 "," + column +
-                ">\n";
+                ">";
     }
 }

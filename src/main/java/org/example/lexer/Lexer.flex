@@ -1,4 +1,4 @@
-package lexer;
+package org.example.parser;
 
 import java.util.ArrayList;
 import java.util.List;

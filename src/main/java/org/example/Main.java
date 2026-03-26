@@ -3,42 +3,80 @@ package org.example;
 import org.example.lexer.Lexer;
 import org.example.lexer.Token;
 import org.example.lexer.TokenType;
+import org.example.parser.LexerAdapter;
+import org.example.parser.Parser;
 import org.example.utils.FileManager;
 
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class Main {
     public static void main(String[] args) {
         try {
-            String source = FileManager.readFile("examples/valid/index.chs");
-            Lexer lexer = new Lexer(new StringReader(source));
+//            String source = FileManager.readFile("examples/valid/index.chs");
+//            String source = FileManager.readFile("examples/invalid/error_lexico_01.chs");
+            String source = FileManager.readFile("examples/invalid/error_sintactico_01.chs");
 
-            // 1. Consumir todos los tokens
+            Lexer tokenLexer = new Lexer(new StringReader(source));
+
             List<Token> tokens = new ArrayList<>();
             Token token;
-            while ((token = lexer.yylex()) != null
+            while ((token = tokenLexer.yylex()) != null
                     && token.getType() != TokenType.EOF) {
                 tokens.add(token);
             }
 
-            // 2. Escribir resultados en archivos separados
-            FileManager.writeFile("output/tokens.txt", tokens.toString());
-            FileManager.writeFile("output/errors.txt", lexer.getErrors().toString());
-
-            // 3. Resumen en consola
             System.out.println("Tokens encontrados : " + tokens.size());
-            System.out.println("Errores léxicos    : " + lexer.getErrors().size());
+            System.out.println("Errores léxicos    : " + tokenLexer.getErrors().size());
 
-            if (!lexer.getErrors().isEmpty()) {
-                System.err.println("Errores:");
-                lexer.getErrors().forEach(System.err::println);
+            if (!tokenLexer.getErrors().isEmpty()) {
+                System.err.println("Errores léxicos:");
+                tokenLexer.getErrors().forEach(System.err::println);
             }
+
+            Lexer parserLexer = new Lexer(new StringReader(source));
+            LexerAdapter lexerAdapter = new LexerAdapter(parserLexer);
+            Parser parser = new Parser(lexerAdapter);
+
+            parser.parse();
+
+            if (parser.getSyntaxErrors().isEmpty()) {
+                System.out.println("Parseo exitoso");
+            } else {
+                System.out.println("Parseo con errores");
+                System.out.println("Errores sintácticos: " + parser.getSyntaxErrors().size());
+                System.out.println("Lista de errores:");
+                parser.getSyntaxErrors().forEach(System.err::println);
+            }
+
+            FileManager.writeFile(
+                    "output/tokens.txt",
+                    tokens.stream()
+                            .map(Object::toString)
+                            .collect(Collectors.joining(System.lineSeparator()))
+            );
+
+            FileManager.writeFile(
+                    "output/lexical_errors.txt",
+                    tokenLexer.getErrors().stream()
+                            .map(Object::toString)
+                            .collect(Collectors.joining(System.lineSeparator()))
+            );
+
+            FileManager.writeFile(
+                    "output/syntactic_errors.txt",
+                    parser.getSyntaxErrors().stream()
+                            .map(Object::toString)
+                            .collect(Collectors.joining(System.lineSeparator()))
+            );
 
         } catch (IOException e) {
             System.err.println("Error al leer/escribir archivo: " + e.getMessage());
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 }
