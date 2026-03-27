@@ -5,6 +5,9 @@ import org.example.lexer.Token;
 import org.example.lexer.TokenType;
 import org.example.parser.LexerAdapter;
 import org.example.parser.Parser;
+import org.example.reports.HtmlReportsGenerator;
+import org.example.reports.SymbolInfo;
+import org.example.reports.SymbolTableGenerator;
 import org.example.utils.FileManager;
 
 import java.io.IOException;
@@ -52,6 +55,8 @@ public class Main {
                 parser.getSyntaxErrors().forEach(System.err::println);
             }
 
+            List<SymbolInfo> symbols = SymbolTableGenerator.generate(tokens);
+
             FileManager.writeFile(
                     "output/tokens.txt",
                     tokens.stream()
@@ -72,6 +77,25 @@ public class Main {
                             .map(Object::toString)
                             .collect(Collectors.joining(System.lineSeparator()))
             );
+
+            HtmlReportsGenerator.generateErrorsReport(
+                    "output/errors_report.html",
+                    tokenLexer.getErrors(),
+                    parser.getSyntaxErrors()
+            );
+
+            HtmlReportsGenerator.generateTokensReport(
+                    "output/tokens_report.html",
+                    tokens
+            );
+
+            HtmlReportsGenerator.generateSymbolTableReport(
+                    "output/symbol_table.html",
+                    symbols
+            );
+
+            System.out.println("Símbolos encontrados: " + symbols.size());
+            System.out.println("Reportes generados correctamente en la carpeta output.");
 
         } catch (IOException e) {
             System.err.println("Error al leer/escribir archivo: " + e.getMessage());
