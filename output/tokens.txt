@@ -1,55 +1,28 @@
 <nimais, VOID [1:1]/>
-
 <main, IDENTIFIER [1:8]/>
-
 <(, LEFT_PAREN [1:12]/>
-
 <), RIGHT_PAREN [1:13]/>
-
 <{, LEFT_BRACE [1:15]/>
-
 <cabal, INT [2:5]/>
-
 <edad, IDENTIFIER [2:11]/>
-
 <=, ASSIGN [2:16]/>
-
 <20, INTEGER_LITERAL [2:18]/>
-
 <simon, IF [4:5]/>
-
 <(, LEFT_PAREN [4:11]/>
-
 <edad, IDENTIFIER [4:12]/>
-
 <>, GREATER_THAN [4:17]/>
-
 <18, INTEGER_LITERAL [4:19]/>
-
 <{, LEFT_BRACE [4:22]/>
-
 <chotear, PRINT [5:9]/>
-
 <(, LEFT_PAREN [5:16]/>
-
 <"Sos mayor de edad", STRING_LITERAL [5:17]/>
-
 <), RIGHT_PAREN [5:36]/>
-
 <}, RIGHT_BRACE [6:5]/>
-
 <chapus, ELSE [6:7]/>
-
 <{, LEFT_BRACE [6:14]/>
-
 <chotear, PRINT [7:9]/>
-
 <(, LEFT_PAREN [7:16]/>
-
 <"Sos menor de edad", STRING_LITERAL [7:17]/>
-
 <), RIGHT_PAREN [7:36]/>
-
 <}, RIGHT_BRACE [8:5]/>
-
 <}, RIGHT_BRACE [9:1]/>

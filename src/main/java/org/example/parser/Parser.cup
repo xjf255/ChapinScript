@@ -4,6 +4,8 @@ import java_cup.runtime.*;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.example.ast.*;
+
 parser code {:
     public static class SyntaxError {
         public final String type;
@@ -115,56 +117,55 @@ terminal Integer INTEGER_LITERAL;
 terminal Double DECIMAL_LITERAL;
 
 /* Programa */
-non terminal program;
-non terminal statement_list;
-non terminal statement;
-non terminal block;
+non terminal ProgramNode program;
+non terminal List statement_list;
+non terminal StatementNode statement;
+non terminal BlockNode block;
 
 /* Declaraciones */
-non terminal decl;
-non terminal decl_suffix;
-non terminal decl_class;
-non terminal decl_constructors;
-non terminal class_member;
-non terminal class_member_list;
-non terminal access_modifier;
-non terminal param_list;
-non terminal non_empty_param_list;
-non terminal param;
-non terminal type;
-non terminal array_values;
+non terminal DeclarationNode decl;
+non terminal ClassDeclNode decl_class;
+non terminal ConstructorDeclNode decl_constructors;
+non terminal ASTNode class_member;
+non terminal List class_member_list;
+non terminal String access_modifier;
+non terminal List param_list;
+non terminal List non_empty_param_list;
+non terminal ParamNode param;
+non terminal String type;
+non terminal List array_values;
 
 /* Control */
-non terminal if_stmt;
-non terminal while_stmt;
-non terminal for_stmt;
-non terminal for_init;
-non terminal for_update;
-non terminal do_while_stmt;
-non terminal try_stmt;
-non terminal throw_stmt;
-non terminal switch_stmt;
-non terminal case_list;
-non terminal case_clause;
+non terminal IfNode if_stmt;
+non terminal WhileNode while_stmt;
+non terminal ForNode for_stmt;
+non terminal ASTNode for_init;
+non terminal ExpressionNode for_update;
+non terminal DoWhileNode do_while_stmt;
+non terminal TryCatchNode try_stmt;
+non terminal ThrowNode throw_stmt;
+non terminal SwitchNode switch_stmt;
+non terminal List case_list;
+non terminal CaseNode case_clause;
 
 /* Expresiones */
-non terminal expression;
-non terminal assign_expr;
-non terminal ternary_expr;
-non terminal or_expr;
-non terminal and_expr;
-non terminal eq_expr;
-non terminal rel_expr;
-non terminal add_expr;
-non terminal mul_expr;
-non terminal unary_expr;
-non terminal primary;
-non terminal literal;
-non terminal func_call;
-non terminal arg_list;
-non terminal non_empty_arg_list;
-non terminal lvalue;
-non terminal array_access;
+non terminal ExpressionNode expression;
+non terminal ExpressionNode assign_expr;
+non terminal ExpressionNode ternary_expr;
+non terminal ExpressionNode or_expr;
+non terminal ExpressionNode and_expr;
+non terminal ExpressionNode eq_expr;
+non terminal ExpressionNode rel_expr;
+non terminal ExpressionNode add_expr;
+non terminal ExpressionNode mul_expr;
+non terminal ExpressionNode unary_expr;
+non terminal ExpressionNode primary;
+non terminal LiteralNode literal;
+non terminal CallNode func_call;
+non terminal List arg_list;
+non terminal List non_empty_arg_list;
+non terminal ExpressionNode lvalue;
+non terminal ArrayAccessNode array_access;
 
 precedence right ASSIGN;
 precedence right QUESTION, COLON;
@@ -180,231 +181,376 @@ precedence left DOT;
 
 start with program;
 
-program ::= statement_list
+program ::= statement_list:s
+          {: RESULT = new ProgramNode((List<StatementNode>) s); :}
           ;
 
-statement_list ::= statement_list statement
+statement_list ::= statement_list:list statement:s
+                 {: list.add(s); RESULT = list; :}
                  |
+                 {: RESULT = new ArrayList(); :}
                  ;
 
-statement ::= decl
-            | decl_class
-            | if_stmt
-            | while_stmt
-            | for_stmt
-            | do_while_stmt
-            | switch_stmt
-            | try_stmt
-            | throw_stmt
-            | RETURN expression SEMICOLON
-            | RETURN SEMICOLON
-            | BREAK SEMICOLON
-            | CONTINUE SEMICOLON
-            | PRINT LEFT_PAREN expression RIGHT_PAREN SEMICOLON
-            | expression SEMICOLON
+statement ::= decl:d
+            {: RESULT = d; :}
+            | decl_class:c
+            {: RESULT = c; :}
+            | if_stmt:i
+            {: RESULT = i; :}
+            | while_stmt:w
+            {: RESULT = w; :}
+            | for_stmt:f
+            {: RESULT = f; :}
+            | do_while_stmt:d
+            {: RESULT = d; :}
+            | switch_stmt:s
+            {: RESULT = s; :}
+            | try_stmt:t
+            {: RESULT = t; :}
+            | throw_stmt:t
+            {: RESULT = t; :}
+            | RETURN:r expression:e SEMICOLON
+            {: RESULT = new ReturnNode(rleft, rright, e); :}
+            | RETURN:r SEMICOLON
+            {: RESULT = new ReturnNode(rleft, rright, null); :}
+            | BREAK:b SEMICOLON
+            {: RESULT = new BreakNode(bleft, bright); :}
+            | CONTINUE:c SEMICOLON
+            {: RESULT = new ContinueNode(cleft, cright); :}
+            | PRINT:p LEFT_PAREN expression:e RIGHT_PAREN SEMICOLON
+            {: RESULT = new PrintNode(pleft, pright, e); :}
+            | expression:e SEMICOLON
+            {: RESULT = new ExpressionStmtNode(e.getLine(), e.getColumn(), e); :}
             | error:e SEMICOLON
               {:
                   addSyntaxError(eleft, eright, "error", "Sentencia inválida");
+                  RESULT = new ErrorStmtNode(eleft, eright);
               :}
             ;
 
-block ::= LEFT_BRACE statement_list RIGHT_BRACE
+block ::= LEFT_BRACE:l statement_list:s RIGHT_BRACE
+        {: RESULT = new BlockNode(lleft, lright, (List<StatementNode>) s); :}
         ;
 
 access_modifier ::= PUBLIC
+                  {: RESULT = "public"; :}
                   | PRIVATE
+                  {: RESULT = "private"; :}
                   ;
 
-decl ::= access_modifier type IDENTIFIER decl_suffix
-       | type IDENTIFIER decl_suffix
-       | CONST type IDENTIFIER ASSIGN expression SEMICOLON
-       | access_modifier VOID IDENTIFIER LEFT_PAREN param_list RIGHT_PAREN block
-       | VOID IDENTIFIER LEFT_PAREN param_list RIGHT_PAREN block
+decl ::= access_modifier:acc type:t IDENTIFIER:id SEMICOLON
+       {: RESULT = new VarDeclNode(idleft, idright, acc, t, id, null); :}
+       | access_modifier:acc type:t IDENTIFIER:id ASSIGN expression:e SEMICOLON
+       {: RESULT = new VarDeclNode(idleft, idright, acc, t, id, e); :}
+       | type:t IDENTIFIER:id SEMICOLON
+       {: RESULT = new VarDeclNode(idleft, idright, null, t, id, null); :}
+       | type:t IDENTIFIER:id ASSIGN expression:e SEMICOLON
+       {: RESULT = new VarDeclNode(idleft, idright, null, t, id, e); :}
+       | CONST:c type:t IDENTIFIER:id ASSIGN expression:e SEMICOLON
+       {: RESULT = new ConstDeclNode(cleft, cright, t, id, e); :}
+       | access_modifier:acc VOID:v IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
+       {: RESULT = new FunctionDeclNode(vleft, vright, acc, "void", id, (List<ParamNode>) p, b); :}
+       | VOID:v IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
+       {: RESULT = new FunctionDeclNode(vleft, vright, null, "void", id, (List<ParamNode>) p, b); :}
+       | access_modifier:acc type:t IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
+       {: RESULT = new FunctionDeclNode(idleft, idright, acc, t, id, (List<ParamNode>) p, b); :}
+       | type:t IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
+       {: RESULT = new FunctionDeclNode(idleft, idright, null, t, id, (List<ParamNode>) p, b); :}
+       | type:t IDENTIFIER:id LEFT_BRACKET INTEGER_LITERAL:size RIGHT_BRACKET SEMICOLON
+       {: RESULT = new ArrayDeclNode(idleft, idright, null, t, id, size, null); :}
+       | access_modifier:acc type:t IDENTIFIER:id LEFT_BRACKET INTEGER_LITERAL:size RIGHT_BRACKET SEMICOLON
+       {: RESULT = new ArrayDeclNode(idleft, idright, acc, t, id, size, null); :}
+       | type:t IDENTIFIER:id LEFT_BRACKET INTEGER_LITERAL:size RIGHT_BRACKET ASSIGN LEFT_BRACE array_values:vals RIGHT_BRACE SEMICOLON
+       {: RESULT = new ArrayDeclNode(idleft, idright, null, t, id, size, (List<ExpressionNode>) vals); :}
+       | access_modifier:acc type:t IDENTIFIER:id LEFT_BRACKET INTEGER_LITERAL:size RIGHT_BRACKET ASSIGN LEFT_BRACE array_values:vals RIGHT_BRACE SEMICOLON
+       {: RESULT = new ArrayDeclNode(idleft, idright, acc, t, id, size, (List<ExpressionNode>) vals); :}
        ;
 
-decl_suffix ::= SEMICOLON
-              | ASSIGN expression SEMICOLON
-              | LEFT_PAREN param_list RIGHT_PAREN block
-              | LEFT_BRACKET INTEGER_LITERAL RIGHT_BRACKET SEMICOLON
-              | LEFT_BRACKET INTEGER_LITERAL RIGHT_BRACKET ASSIGN LEFT_BRACE array_values RIGHT_BRACE SEMICOLON
-              ;
-
-decl_class ::= CLASS IDENTIFIER LEFT_BRACE class_member_list RIGHT_BRACE
+decl_class ::= CLASS:c IDENTIFIER:id LEFT_BRACE class_member_list:members RIGHT_BRACE
+             {: RESULT = new ClassDeclNode(cleft, cright, id, (List<ASTNode>) members); :}
              ;
 
-class_member_list ::= class_member_list class_member
+class_member_list ::= class_member_list:list class_member:m
+                    {: list.add(m); RESULT = list; :}
                     |
+                    {: RESULT = new ArrayList(); :}
                     ;
 
-class_member ::= decl
-               | decl_constructors
+class_member ::= decl:d
+               {: RESULT = d; :}
+               | decl_constructors:c
+               {: RESULT = c; :}
                ;
 
-decl_constructors ::= IDENTIFIER LEFT_PAREN param_list RIGHT_PAREN block
+decl_constructors ::= IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
+                    {: RESULT = new ConstructorDeclNode(idleft, idright, id, (List<ParamNode>) p, b); :}
                     ;
 
-array_values ::= expression
-               | array_values COMMA expression
+array_values ::= expression:e
+               {:
+                   List vals = new ArrayList();
+                   vals.add(e);
+                   RESULT = vals;
+               :}
+               | array_values:list COMMA expression:e
+               {:
+                   list.add(e);
+                   RESULT = list;
+               :}
                ;
 
-param_list ::= non_empty_param_list
+param_list ::= non_empty_param_list:p
+             {: RESULT = p; :}
              |
+             {: RESULT = new ArrayList(); :}
              ;
 
-non_empty_param_list ::= non_empty_param_list COMMA param
-                       | param
+non_empty_param_list ::= non_empty_param_list:list COMMA param:p
+                       {: list.add(p); RESULT = list; :}
+                       | param:p
+                       {:
+                           List list = new ArrayList();
+                           list.add(p);
+                           RESULT = list;
+                       :}
                        ;
 
-param ::= type IDENTIFIER
-        | type IDENTIFIER ASSIGN literal
+param ::= type:t IDENTIFIER:id
+        {: RESULT = new ParamNode(idleft, idright, t, id, null); :}
+        | type:t IDENTIFIER:id ASSIGN literal:l
+        {: RESULT = new ParamNode(idleft, idright, t, id, l); :}
         ;
 
 type ::= INT
+       {: RESULT = "int"; :}
        | FLOAT
+       {: RESULT = "float"; :}
        | DOUBLE
+       {: RESULT = "double"; :}
        | CHAR
+       {: RESULT = "char"; :}
        | BOOL
+       {: RESULT = "bool"; :}
        | STRING
+       {: RESULT = "string"; :}
        ;
 
-if_stmt ::= IF LEFT_PAREN expression RIGHT_PAREN block
-          | IF LEFT_PAREN expression RIGHT_PAREN block ELSE block
-          | IF LEFT_PAREN expression RIGHT_PAREN block ELSE if_stmt
-          | IF LEFT_PAREN error:e RIGHT_PAREN block
+if_stmt ::= IF:i LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk
+          {: RESULT = new IfNode(ileft, iright, cond, thenBlk, null); :}
+          | IF:i LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk ELSE block:elseBlk
+          {: RESULT = new IfNode(ileft, iright, cond, thenBlk, elseBlk); :}
+          | IF:i LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk ELSE if_stmt:elseIf
+          {: RESULT = new IfNode(ileft, iright, cond, thenBlk, elseIf); :}
+          | IF:i LEFT_PAREN error:e RIGHT_PAREN block:b
             {:
                 addSyntaxError(eleft, eright, "error", "Condición inválida en if");
+                RESULT = new IfNode(ileft, iright, null, b, null);
             :}
           ;
 
-while_stmt ::= WHILE LEFT_PAREN expression RIGHT_PAREN block
-             | WHILE LEFT_PAREN error:e RIGHT_PAREN block
+while_stmt ::= WHILE:w LEFT_PAREN expression:cond RIGHT_PAREN block:b
+             {: RESULT = new WhileNode(wleft, wright, cond, b); :}
+             | WHILE:w LEFT_PAREN error:e RIGHT_PAREN block:b
                {:
                    addSyntaxError(eleft, eright, "error", "Condición inválida en while");
+                   RESULT = new WhileNode(wleft, wright, null, b);
                :}
              ;
 
-do_while_stmt ::= DO block WHILE LEFT_PAREN expression RIGHT_PAREN SEMICOLON
+do_while_stmt ::= DO:d block:b WHILE LEFT_PAREN expression:cond RIGHT_PAREN SEMICOLON
+                {: RESULT = new DoWhileNode(dleft, dright, b, cond); :}
                 ;
 
-for_stmt ::= FOR LEFT_PAREN for_init SEMICOLON expression SEMICOLON for_update RIGHT_PAREN block
-           | FOR LEFT_PAREN error:e RIGHT_PAREN block
+for_stmt ::= FOR:f LEFT_PAREN for_init:init SEMICOLON expression:cond SEMICOLON for_update:update RIGHT_PAREN block:b
+           {: RESULT = new ForNode(fleft, fright, init, cond, update, b); :}
+           | FOR:f LEFT_PAREN error:e RIGHT_PAREN block:b
              {:
                  addSyntaxError(eleft, eright, "error", "Estructura inválida en for");
+                 RESULT = new ForNode(fleft, fright, null, null, null, b);
              :}
            ;
 
-for_init ::= type IDENTIFIER ASSIGN expression
-           | type IDENTIFIER
-           | expression
+for_init ::= type:t IDENTIFIER:id ASSIGN expression:e
+           {: RESULT = new VarDeclNode(idleft, idright, null, t, id, e); :}
+           | type:t IDENTIFIER:id
+           {: RESULT = new VarDeclNode(idleft, idright, null, t, id, null); :}
+           | expression:e
+           {: RESULT = e; :}
            |
+           {: RESULT = null; :}
            ;
 
-for_update ::= expression
+for_update ::= expression:e
+             {: RESULT = e; :}
              |
+             {: RESULT = null; :}
              ;
 
-switch_stmt ::= SWITCH LEFT_PAREN expression RIGHT_PAREN LEFT_BRACE case_list RIGHT_BRACE
-              | SWITCH LEFT_PAREN error:e RIGHT_PAREN LEFT_BRACE case_list RIGHT_BRACE
+switch_stmt ::= SWITCH:s LEFT_PAREN expression:expr RIGHT_PAREN LEFT_BRACE case_list:c RIGHT_BRACE
+              {: RESULT = new SwitchNode(sleft, sright, expr, (List<CaseNode>) c); :}
+              | SWITCH:s LEFT_PAREN error:e RIGHT_PAREN LEFT_BRACE case_list:c RIGHT_BRACE
                 {:
                     addSyntaxError(eleft, eright, "error", "Expresión inválida en switch");
+                    RESULT = new SwitchNode(sleft, sright, null, (List<CaseNode>) c);
                 :}
               ;
 
-case_list ::= case_list case_clause
+case_list ::= case_list:list case_clause:c
+            {: list.add(c); RESULT = list; :}
             |
+            {: RESULT = new ArrayList(); :}
             ;
 
-case_clause ::= CASE expression COLON statement_list
-              | CASE literal COLON statement_list
-              | DEFAULT COLON statement_list
+case_clause ::= CASE:c expression:e COLON statement_list:s
+              {: RESULT = new CaseNode(cleft, cright, e, (List<StatementNode>) s, false); :}
+              | CASE:c literal:l COLON statement_list:s
+              {: RESULT = new CaseNode(cleft, cright, l, (List<StatementNode>) s, false); :}
+              | DEFAULT:d COLON statement_list:s
+              {: RESULT = new CaseNode(dleft, dright, null, (List<StatementNode>) s, true); :}
               ;
 
-try_stmt ::= TRY block CATCH LEFT_PAREN param RIGHT_PAREN block
+try_stmt ::= TRY:t block:tryBlk CATCH LEFT_PAREN param:p RIGHT_PAREN block:catchBlk
+           {: RESULT = new TryCatchNode(tleft, tright, tryBlk, p, catchBlk); :}
            ;
 
-throw_stmt ::= THROW expression SEMICOLON
+throw_stmt ::= THROW:t expression:e SEMICOLON
+             {: RESULT = new ThrowNode(tleft, tright, e); :}
              ;
 
-expression ::= assign_expr
+expression ::= assign_expr:e
+             {: RESULT = e; :}
              ;
 
-assign_expr ::= lvalue ASSIGN assign_expr
-              | array_access ASSIGN assign_expr
-              | ternary_expr
+assign_expr ::= lvalue:l ASSIGN assign_expr:r
+              {: RESULT = new AssignmentNode(l.getLine(), l.getColumn(), l, r); :}
+              | array_access:a ASSIGN assign_expr:r
+              {: RESULT = new AssignmentNode(a.getLine(), a.getColumn(), a, r); :}
+              | ternary_expr:t
+              {: RESULT = t; :}
               ;
 
-ternary_expr ::= or_expr
-               | or_expr QUESTION expression COLON ternary_expr
+ternary_expr ::= or_expr:o
+               {: RESULT = o; :}
+               | or_expr:c QUESTION:q expression:t COLON ternary_expr:f
+               {: RESULT = new TernaryNode(qleft, qright, c, t, f); :}
                ;
 
-or_expr ::= or_expr OR and_expr
-          | and_expr
+or_expr ::= or_expr:l OR:o and_expr:r
+          {: RESULT = new BinaryOpNode(oleft, oright, "||", l, r); :}
+          | and_expr:e
+          {: RESULT = e; :}
           ;
 
-and_expr ::= and_expr AND eq_expr
-           | eq_expr
+and_expr ::= and_expr:l AND:a eq_expr:r
+           {: RESULT = new BinaryOpNode(aleft, aright, "&&", l, r); :}
+           | eq_expr:e
+           {: RESULT = e; :}
            ;
 
-eq_expr ::= eq_expr EQUALS rel_expr
-          | eq_expr NOT_EQUALS rel_expr
-          | rel_expr
+eq_expr ::= eq_expr:l EQUALS:eq rel_expr:r
+          {: RESULT = new BinaryOpNode(eqleft, eqright, "==", l, r); :}
+          | eq_expr:l NOT_EQUALS:ne rel_expr:r
+          {: RESULT = new BinaryOpNode(neleft, neright, "!=", l, r); :}
+          | rel_expr:e
+          {: RESULT = e; :}
           ;
 
-rel_expr ::= rel_expr LESS_THAN add_expr
-           | rel_expr GREATER_THAN add_expr
-           | rel_expr LESS_EQUAL add_expr
-           | rel_expr GREATER_EQUAL add_expr
-           | add_expr
+rel_expr ::= rel_expr:l LESS_THAN:op add_expr:r
+           {: RESULT = new BinaryOpNode(opleft, opright, "<", l, r); :}
+           | rel_expr:l GREATER_THAN:op add_expr:r
+           {: RESULT = new BinaryOpNode(opleft, opright, ">", l, r); :}
+           | rel_expr:l LESS_EQUAL:op add_expr:r
+           {: RESULT = new BinaryOpNode(opleft, opright, "<=", l, r); :}
+           | rel_expr:l GREATER_EQUAL:op add_expr:r
+           {: RESULT = new BinaryOpNode(opleft, opright, ">=", l, r); :}
+           | add_expr:e
+           {: RESULT = e; :}
            ;
 
-add_expr ::= add_expr PLUS mul_expr
-           | add_expr MINUS mul_expr
-           | mul_expr
+add_expr ::= add_expr:l PLUS:op mul_expr:r
+           {: RESULT = new BinaryOpNode(opleft, opright, "+", l, r); :}
+           | add_expr:l MINUS:op mul_expr:r
+           {: RESULT = new BinaryOpNode(opleft, opright, "-", l, r); :}
+           | mul_expr:e
+           {: RESULT = e; :}
            ;
 
-mul_expr ::= mul_expr MULTIPLY unary_expr
-           | mul_expr DIVIDE unary_expr
-           | unary_expr
+mul_expr ::= mul_expr:l MULTIPLY:op unary_expr:r
+           {: RESULT = new BinaryOpNode(opleft, opright, "*", l, r); :}
+           | mul_expr:l DIVIDE:op unary_expr:r
+           {: RESULT = new BinaryOpNode(opleft, opright, "/", l, r); :}
+           | unary_expr:e
+           {: RESULT = e; :}
            ;
 
-unary_expr ::= NOT unary_expr
-             | MINUS unary_expr %prec UMINUS
-             | primary
+unary_expr ::= NOT:op unary_expr:e
+             {: RESULT = new UnaryOpNode(opleft, opright, "!", e); :}
+             | MINUS:op unary_expr:e %prec UMINUS
+             {: RESULT = new UnaryOpNode(opleft, opright, "-", e); :}
+             | primary:p
+             {: RESULT = p; :}
              ;
 
-lvalue ::= IDENTIFIER
-         | THIS DOT IDENTIFIER
-         | primary DOT IDENTIFIER
+lvalue ::= IDENTIFIER:id
+         {: RESULT = new IdentifierNode(idleft, idright, id); :}
+         | THIS:t DOT IDENTIFIER:id
+         {: RESULT = new MemberAccessNode(tleft, tright, new ThisNode(tleft, tright), id); :}
+         | primary:p DOT IDENTIFIER:id
+         {: RESULT = new MemberAccessNode(p.getLine(), p.getColumn(), p, id); :}
          ;
 
-array_access ::= IDENTIFIER LEFT_BRACKET expression RIGHT_BRACKET
+array_access ::= IDENTIFIER:id LEFT_BRACKET expression:index RIGHT_BRACKET
+               {: RESULT = new ArrayAccessNode(idleft, idright, new IdentifierNode(idleft, idright, id), index); :}
                ;
 
-primary ::= literal
-          | IDENTIFIER
-          | array_access
-          | func_call
-          | THIS DOT IDENTIFIER
-          | THIS DOT func_call
-          | primary DOT IDENTIFIER
-          | primary DOT func_call
-          | LEFT_PAREN expression RIGHT_PAREN
+primary ::= literal:l
+          {: RESULT = l; :}
+          | IDENTIFIER:id
+          {: RESULT = new IdentifierNode(idleft, idright, id); :}
+          | array_access:a
+          {: RESULT = a; :}
+          | func_call:f
+          {: RESULT = f; :}
+          | THIS:t DOT IDENTIFIER:id
+          {: RESULT = new MemberAccessNode(tleft, tright, new ThisNode(tleft, tright), id); :}
+          | THIS:t DOT func_call:f
+          {: RESULT = new MemberCallNode(tleft, tright, new ThisNode(tleft, tright), f); :}
+          | primary:p DOT IDENTIFIER:id
+          {: RESULT = new MemberAccessNode(p.getLine(), p.getColumn(), p, id); :}
+          | primary:p DOT func_call:f
+          {: RESULT = new MemberCallNode(p.getLine(), p.getColumn(), p, f); :}
+          | LEFT_PAREN expression:e RIGHT_PAREN
+          {: RESULT = e; :}
           ;
 
-func_call ::= IDENTIFIER LEFT_PAREN arg_list RIGHT_PAREN
+func_call ::= IDENTIFIER:id LEFT_PAREN arg_list:args RIGHT_PAREN
+            {: RESULT = new CallNode(idleft, idright, id, (List<ExpressionNode>) args); :}
             ;
 
-arg_list ::= non_empty_arg_list
+arg_list ::= non_empty_arg_list:a
+           {: RESULT = a; :}
            |
+           {: RESULT = new ArrayList(); :}
            ;
 
-non_empty_arg_list ::= non_empty_arg_list COMMA expression
-                     | expression
+non_empty_arg_list ::= non_empty_arg_list:list COMMA expression:e
+                     {: list.add(e); RESULT = list; :}
+                     | expression:e
+                     {:
+                         List list = new ArrayList();
+                         list.add(e);
+                         RESULT = list;
+                     :}
                      ;
 
-literal ::= INTEGER_LITERAL
-          | DECIMAL_LITERAL
-          | STRING_LITERAL
-          | TRUE
-          | FALSE
+literal ::= INTEGER_LITERAL:i
+          {: RESULT = new LiteralNode(ileft, iright, i); :}
+          | DECIMAL_LITERAL:d
+          {: RESULT = new LiteralNode(dleft, dright, d); :}
+          | STRING_LITERAL:s
+          {: RESULT = new LiteralNode(sleft, sright, s); :}
+          | TRUE:t
+          {: RESULT = new LiteralNode(tleft, tright, Boolean.TRUE); :}
+          | FALSE:f
+          {: RESULT = new LiteralNode(fleft, fright, Boolean.FALSE); :}
           ;
