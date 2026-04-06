@@ -2,6 +2,7 @@ package org.example.reports;
 
 import org.example.lexer.LexicalError;
 import org.example.lexer.Token;
+import org.example.semantic.SymbolInfo;
 import org.example.utils.FileManager;
 
 import java.io.IOException;

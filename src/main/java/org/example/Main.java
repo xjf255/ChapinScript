@@ -8,8 +8,8 @@ import org.example.lexer.TokenType;
 import org.example.parser.LexerAdapter;
 import org.example.parser.Parser;
 import org.example.reports.HtmlReportsGenerator;
-import org.example.reports.SymbolInfo;
-import org.example.reports.SymbolTableGenerator;
+import org.example.semantic.SymbolInfo;
+import org.example.semantic.SymbolTable;
 import org.example.utils.FileManager;
 
 import java.io.IOException;
@@ -112,7 +112,7 @@ public class Main {
              * 4. TABLA DE SÍMBOLOS BÁSICA DESDE TOKENS
              * =========================
              */
-            List<SymbolInfo> symbols = SymbolTableGenerator.generate(tokens);
+            List<SymbolInfo> symbols = SymbolTable.generate(tokens);
 
             /*
              * =========================
