@@ -1,0 +1,422 @@
+Program [line=1, col=1]
+  ClassDecl name=ContadorChapin [line=1, col=1]
+    Members:
+      VarDecl type=int name=LIMITE access=public [line=3, col=18]
+        Initializer:
+          Literal value=5 [line=3, col=27]
+      VarDecl type=string name=nombre access=null [line=4, col=12]
+      ArrayDecl type=string name=nombres size=5 access=null [line=5, col=12]
+        Values:
+          (empty)
+      VarDecl type=int name=total access=null [line=6, col=11]
+      VarDecl type=float name=promedio access=null [line=7, col=11]
+      VarDecl type=double name=ahorro access=null [line=8, col=13]
+      VarDecl type=char name=inicial access=null [line=9, col=13]
+      VarDecl type=bool name=activo access=null [line=10, col=12]
+      ConstructorDecl name=ContadorChapin [line=12, col=5]
+        Params:
+          Param type=string name=nom [line=12, col=27]
+          Param type=int name=t [line=12, col=38]
+          Param type=float name=p [line=12, col=47]
+          Param type=double name=a [line=12, col=58]
+          Param type=char name=i [line=12, col=69]
+          Param type=bool name=estado [line=12, col=79]
+        Body:
+          Block [line=12, col=87]
+            ExpressionStmt [line=13, col=9]
+              Expression:
+                Assignment [line=13, col=9]
+                  Target:
+                    MemberAccess member=nombre [line=13, col=9]
+                      Target:
+                        This [line=13, col=9]
+                  Value:
+                    Identifier name=nom [line=13, col=22]
+            ExpressionStmt [line=14, col=9]
+              Expression:
+                Assignment [line=14, col=9]
+                  Target:
+                    MemberAccess member=total [line=14, col=9]
+                      Target:
+                        This [line=14, col=9]
+                  Value:
+                    Identifier name=t [line=14, col=21]
+            ExpressionStmt [line=15, col=9]
+              Expression:
+                Assignment [line=15, col=9]
+                  Target:
+                    MemberAccess member=promedio [line=15, col=9]
+                      Target:
+                        This [line=15, col=9]
+                  Value:
+                    Identifier name=p [line=15, col=24]
+            ExpressionStmt [line=16, col=9]
+              Expression:
+                Assignment [line=16, col=9]
+                  Target:
+                    MemberAccess member=ahorro [line=16, col=9]
+                      Target:
+                        This [line=16, col=9]
+                  Value:
+                    Identifier name=a [line=16, col=22]
+            ExpressionStmt [line=17, col=9]
+              Expression:
+                Assignment [line=17, col=9]
+                  Target:
+                    MemberAccess member=inicial [line=17, col=9]
+                      Target:
+                        This [line=17, col=9]
+                  Value:
+                    Identifier name=i [line=17, col=23]
+            ExpressionStmt [line=18, col=9]
+              Expression:
+                Assignment [line=18, col=9]
+                  Target:
+                    MemberAccess member=activo [line=18, col=9]
+                      Target:
+                        This [line=18, col=9]
+                  Value:
+                    Identifier name=estado [line=18, col=22]
+      FunctionDecl returnType=void name=mostrarEstado access=null [line=21, col=5]
+        Params:
+          (empty)
+        Body:
+          Block [line=21, col=28]
+            Print [line=22, col=9]
+              Expression:
+                Literal value=""==== ESTADO DEL CONTADOR ===="" [line=22, col=17]
+            Print [line=23, col=9]
+              Expression:
+                BinaryOp operator=+ [line=23, col=28]
+                  Left:
+                    Literal value=""Nombre: "" [line=23, col=17]
+                  Right:
+                    MemberAccess member=nombre [line=23, col=30]
+                      Target:
+                        This [line=23, col=30]
+            Print [line=24, col=9]
+              Expression:
+                BinaryOp operator=+ [line=24, col=27]
+                  Left:
+                    Literal value=""Total: "" [line=24, col=17]
+                  Right:
+                    MemberAccess member=total [line=24, col=29]
+                      Target:
+                        This [line=24, col=29]
+            Print [line=25, col=9]
+              Expression:
+                BinaryOp operator=+ [line=25, col=30]
+                  Left:
+                    Literal value=""Promedio: "" [line=25, col=17]
+                  Right:
+                    MemberAccess member=promedio [line=25, col=32]
+                      Target:
+                        This [line=25, col=32]
+            Print [line=26, col=9]
+              Expression:
+                BinaryOp operator=+ [line=26, col=28]
+                  Left:
+                    Literal value=""Ahorro: "" [line=26, col=17]
+                  Right:
+                    MemberAccess member=ahorro [line=26, col=30]
+                      Target:
+                        This [line=26, col=30]
+            Print [line=27, col=9]
+              Expression:
+                BinaryOp operator=+ [line=27, col=29]
+                  Left:
+                    Literal value=""Inicial: "" [line=27, col=17]
+                  Right:
+                    MemberAccess member=inicial [line=27, col=31]
+                      Target:
+                        This [line=27, col=31]
+            If [line=29, col=9]
+              Condition:
+                BinaryOp operator=== [line=29, col=27]
+                  Left:
+                    MemberAccess member=activo [line=29, col=16]
+                      Target:
+                        This [line=29, col=16]
+                  Right:
+                    Literal value=true [line=29, col=30]
+              Then:
+                Block [line=29, col=39]
+                  Print [line=30, col=13]
+                    Expression:
+                      Literal value=""Estado: activo"" [line=30, col=21]
+              Else:
+                Block [line=31, col=18]
+                  Print [line=32, col=13]
+                    Expression:
+                      Literal value=""Estado: inactivo"" [line=32, col=21]
+      FunctionDecl returnType=int name=procesar access=null [line=36, col=11]
+        Params:
+          Param type=int name=numero [line=36, col=26]
+        Body:
+          Block [line=36, col=34]
+            VarDecl type=int name=suma access=null [line=37, col=15]
+              Initializer:
+                Literal value=0 [line=37, col=22]
+            For [line=39, col=9]
+              Init:
+                VarDecl type=int name=i access=null [line=39, col=23]
+                  Initializer:
+                    Literal value=0 [line=39, col=27]
+              Condition:
+                BinaryOp operator=< [line=39, col=32]
+                  Left:
+                    Identifier name=i [line=39, col=30]
+                  Right:
+                    Identifier name=numero [line=39, col=34]
+              Update:
+                Assignment [line=39, col=42]
+                  Target:
+                    Identifier name=i [line=39, col=42]
+                  Value:
+                    BinaryOp operator=+ [line=39, col=48]
+                      Left:
+                        Identifier name=i [line=39, col=46]
+                      Right:
+                        Literal value=1 [line=39, col=50]
+              Body:
+                Block [line=39, col=53]
+                  If [line=40, col=13]
+                    Condition:
+                      BinaryOp operator=== [line=40, col=22]
+                        Left:
+                          Identifier name=i [line=40, col=20]
+                        Right:
+                          Literal value=2 [line=40, col=25]
+                    Then:
+                      Block [line=40, col=28]
+                        Continue [line=41, col=17]
+                  If [line=44, col=13]
+                    Condition:
+                      BinaryOp operator=> [line=44, col=22]
+                        Left:
+                          Identifier name=i [line=44, col=20]
+                        Right:
+                          Literal value=10 [line=44, col=24]
+                    Then:
+                      Block [line=44, col=28]
+                        Break [line=45, col=17]
+                  ExpressionStmt [line=48, col=13]
+                    Expression:
+                      Assignment [line=48, col=13]
+                        Target:
+                          Identifier name=suma [line=48, col=13]
+                        Value:
+                          BinaryOp operator=+ [line=48, col=25]
+                            Left:
+                              Identifier name=suma [line=48, col=20]
+                            Right:
+                              Identifier name=i [line=48, col=27]
+            While [line=51, col=9]
+              Condition:
+                BinaryOp operator=< [line=51, col=23]
+                  Left:
+                    Identifier name=suma [line=51, col=18]
+                  Right:
+                    Literal value=20 [line=51, col=25]
+              Body:
+                Block [line=51, col=29]
+                  ExpressionStmt [line=52, col=13]
+                    Expression:
+                      Assignment [line=52, col=13]
+                        Target:
+                          Identifier name=suma [line=52, col=13]
+                        Value:
+                          BinaryOp operator=+ [line=52, col=25]
+                            Left:
+                              Identifier name=suma [line=52, col=20]
+                            Right:
+                              Literal value=2 [line=52, col=27]
+            DoWhile [line=55, col=9]
+              Body:
+                Block [line=55, col=14]
+                  ExpressionStmt [line=56, col=13]
+                    Expression:
+                      Assignment [line=56, col=13]
+                        Target:
+                          Identifier name=suma [line=56, col=13]
+                        Value:
+                          BinaryOp operator=- [line=56, col=25]
+                            Left:
+                              Identifier name=suma [line=56, col=20]
+                            Right:
+                              Literal value=1 [line=56, col=27]
+              Condition:
+                BinaryOp operator=> [line=57, col=25]
+                  Left:
+                    Identifier name=suma [line=57, col=20]
+                  Right:
+                    Literal value=15 [line=57, col=27]
+            Switch [line=59, col=9]
+              Expression:
+                Identifier name=numero [line=59, col=18]
+              Cases:
+                Case default=false [line=60, col=13]
+                  Value:
+                    Literal value=1 [line=60, col=18]
+                  Statements:
+                    Print [line=61, col=17]
+                      Expression:
+                        Literal value=""Caso 1"" [line=61, col=25]
+                    Break [line=62, col=17]
+                Case default=false [line=64, col=13]
+                  Value:
+                    Literal value=2 [line=64, col=18]
+                  Statements:
+                    Print [line=65, col=17]
+                      Expression:
+                        Literal value=""Caso 2"" [line=65, col=25]
+                    Break [line=66, col=17]
+                Case default=false [line=68, col=13]
+                  Value:
+                    Literal value=3 [line=68, col=18]
+                  Statements:
+                    Print [line=69, col=17]
+                      Expression:
+                        Literal value=""Caso 3"" [line=69, col=25]
+                    Break [line=70, col=17]
+                Case default=true [line=72, col=13]
+                  Value:
+                    null
+                  Statements:
+                    Print [line=73, col=17]
+                      Expression:
+                        Literal value=""Caso no contemplado"" [line=73, col=25]
+                    Break [line=74, col=17]
+            Return [line=77, col=9]
+              Expression:
+                Identifier name=suma [line=77, col=15]
+      FunctionDecl returnType=void name=validar access=private [line=80, col=13]
+        Params:
+          Param type=int name=edad [line=80, col=34]
+        Body:
+          Block [line=80, col=40]
+            If [line=81, col=9]
+              Condition:
+                BinaryOp operator=< [line=81, col=21]
+                  Left:
+                    Identifier name=edad [line=81, col=16]
+                  Right:
+                    Literal value=0 [line=81, col=23]
+              Then:
+                Block [line=81, col=26]
+                  Throw [line=82, col=13]
+                    Expression:
+                      Literal value=""La edad no puede ser negativa"" [line=82, col=23]
+            If [line=85, col=9]
+              Condition:
+                BinaryOp operator=== [line=85, col=21]
+                  Left:
+                    Identifier name=edad [line=85, col=16]
+                  Right:
+                    Literal value=0 [line=85, col=24]
+              Then:
+                Block [line=85, col=27]
+                  Throw [line=86, col=13]
+                    Expression:
+                      Literal value=""La edad no puede ser cero"" [line=86, col=23]
+  FunctionDecl returnType=void name=main access=null [line=91, col=1]
+    Params:
+      (empty)
+    Body:
+      Block [line=91, col=15]
+        ExpressionStmt [line=92, col=5]
+          Expression:
+            MemberCall [line=92, col=5]
+              Target:
+                Identifier name=contador [line=92, col=5]
+              Call:
+                Call function=mostrarEstado [line=92, col=14]
+                  Arguments:
+                    (empty)
+        TryCatch [line=94, col=5]
+          TryBlock:
+            Block [line=94, col=12]
+              ExpressionStmt [line=95, col=9]
+                Expression:
+                  MemberCall [line=95, col=9]
+                    Target:
+                      Identifier name=contador [line=95, col=9]
+                    Call:
+                      Call function=validar [line=95, col=18]
+                        Arguments:
+                          Literal value=5 [line=95, col=26]
+              VarDecl type=int name=resultado access=null [line=97, col=15]
+                Initializer:
+                  MemberCall [line=97, col=27]
+                    Target:
+                      Identifier name=contador [line=97, col=27]
+                    Call:
+                      Call function=procesar [line=97, col=36]
+                        Arguments:
+                          Literal value=7 [line=97, col=45]
+              Print [line=98, col=9]
+                Expression:
+                  BinaryOp operator=+ [line=98, col=37]
+                    Left:
+                      Literal value=""Resultado final: "" [line=98, col=17]
+                    Right:
+                      Identifier name=resultado [line=98, col=39]
+              VarDecl type=bool name=bandera access=null [line=100, col=16]
+                Initializer:
+                  Literal value=false [line=100, col=26]
+              If [line=102, col=9]
+                Condition:
+                  BinaryOp operator=> [line=102, col=26]
+                    Left:
+                      Identifier name=resultado [line=102, col=16]
+                    Right:
+                      Literal value=10 [line=102, col=28]
+                Then:
+                  Block [line=102, col=32]
+                    ExpressionStmt [line=103, col=13]
+                      Expression:
+                        Assignment [line=103, col=13]
+                          Target:
+                            Identifier name=bandera [line=103, col=13]
+                          Value:
+                            Literal value=true [line=103, col=23]
+                Else:
+                  Block [line=104, col=18]
+                    ExpressionStmt [line=105, col=13]
+                      Expression:
+                        Assignment [line=105, col=13]
+                          Target:
+                            Identifier name=bandera [line=105, col=13]
+                          Value:
+                            Literal value=false [line=105, col=23]
+              If [line=108, col=9]
+                Condition:
+                  BinaryOp operator=== [line=108, col=24]
+                    Left:
+                      Identifier name=bandera [line=108, col=16]
+                    Right:
+                      Literal value=true [line=108, col=27]
+                Then:
+                  Block [line=108, col=36]
+                    Print [line=109, col=13]
+                      Expression:
+                        Literal value=""La bandera quedó en verdadero"" [line=109, col=21]
+                Else:
+                  Block [line=110, col=18]
+                    Print [line=111, col=13]
+                      Expression:
+                        Literal value=""La bandera quedó en falso"" [line=111, col=21]
+          CatchParam:
+            Param type=string name=error [line=114, col=24]
+          CatchBlock:
+            Block [line=114, col=31]
+              Print [line=115, col=9]
+                Expression:
+                  BinaryOp operator=+ [line=115, col=40]
+                    Left:
+                      Literal value=""Se atrapó un error: "" [line=115, col=17]
+                    Right:
+                      Identifier name=error [line=115, col=42]
+        Print [line=118, col=5]
+          Expression:
+            Literal value=""Programa finalizado"" [line=118, col=13]

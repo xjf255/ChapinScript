@@ -475,8 +475,9 @@ mul_expr ::= mul_expr:l MULTIPLY:op unary_expr:r
 
 unary_expr ::= NOT:op unary_expr:e
              {: RESULT = new UnaryOpNode(opleft, opright, "!", e); :}
-             | MINUS:op unary_expr:e %prec
+             | MINUS:op unary_expr:e
              {: RESULT = new UnaryOpNode(opleft, opright, "-", e); :}
+             %prec UMINUS
              | primary:p
              {: RESULT = p; :}
              ;
