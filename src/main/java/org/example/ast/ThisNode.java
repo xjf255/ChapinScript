@@ -2,7 +2,7 @@ package org.example.ast;
 
 public class ThisNode extends ExpressionNode {
 
-    protected ThisNode(int line, int column) {
+    public ThisNode(int line, int column) {
         super(line, column);
     }
 
