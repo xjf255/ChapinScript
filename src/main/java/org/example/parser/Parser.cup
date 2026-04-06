@@ -116,13 +116,11 @@ terminal String STRING_LITERAL;
 terminal Integer INTEGER_LITERAL;
 terminal Double DECIMAL_LITERAL;
 
-/* Programa */
 non terminal ProgramNode program;
 non terminal List statement_list;
 non terminal StatementNode statement;
 non terminal BlockNode block;
 
-/* Declaraciones */
 non terminal DeclarationNode decl;
 non terminal ClassDeclNode decl_class;
 non terminal ConstructorDeclNode decl_constructors;
@@ -135,7 +133,6 @@ non terminal ParamNode param;
 non terminal String type;
 non terminal List array_values;
 
-/* Control */
 non terminal IfNode if_stmt;
 non terminal WhileNode while_stmt;
 non terminal ForNode for_stmt;
@@ -148,7 +145,6 @@ non terminal SwitchNode switch_stmt;
 non terminal List case_list;
 non terminal CaseNode case_clause;
 
-/* Expresiones */
 non terminal ExpressionNode expression;
 non terminal ExpressionNode assign_expr;
 non terminal ExpressionNode ternary_expr;
@@ -187,7 +183,7 @@ program ::= statement_list:s
 
 statement_list ::= statement_list:list statement:s
                  {: list.add(s); RESULT = list; :}
-                 |
+                 | /* empty */
                  {: RESULT = new ArrayList(); :}
                  ;
 
@@ -272,7 +268,7 @@ decl_class ::= CLASS:c IDENTIFIER:id LEFT_BRACE class_member_list:members RIGHT_
 
 class_member_list ::= class_member_list:list class_member:m
                     {: list.add(m); RESULT = list; :}
-                    |
+                    | /* empty */
                     {: RESULT = new ArrayList(); :}
                     ;
 
@@ -301,7 +297,7 @@ array_values ::= expression:e
 
 param_list ::= non_empty_param_list:p
              {: RESULT = p; :}
-             |
+             | /* empty */
              {: RESULT = new ArrayList(); :}
              ;
 
@@ -321,18 +317,12 @@ param ::= type:t IDENTIFIER:id
         {: RESULT = new ParamNode(idleft, idright, t, id, l); :}
         ;
 
-type ::= INT
-       {: RESULT = "int"; :}
-       | FLOAT
-       {: RESULT = "float"; :}
-       | DOUBLE
-       {: RESULT = "double"; :}
-       | CHAR
-       {: RESULT = "char"; :}
-       | BOOL
-       {: RESULT = "bool"; :}
-       | STRING
-       {: RESULT = "string"; :}
+type ::= INT {: RESULT = "int"; :}
+       | FLOAT {: RESULT = "float"; :}
+       | DOUBLE {: RESULT = "double"; :}
+       | CHAR {: RESULT = "char"; :}
+       | BOOL {: RESULT = "bool"; :}
+       | STRING {: RESULT = "string"; :}
        ;
 
 if_stmt ::= IF:i LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk
@@ -376,13 +366,13 @@ for_init ::= type:t IDENTIFIER:id ASSIGN expression:e
            {: RESULT = new VarDeclNode(idleft, idright, null, t, id, null); :}
            | expression:e
            {: RESULT = e; :}
-           |
+           | /* empty */
            {: RESULT = null; :}
            ;
 
 for_update ::= expression:e
              {: RESULT = e; :}
-             |
+             | /* empty */
              {: RESULT = null; :}
              ;
 
@@ -397,7 +387,7 @@ switch_stmt ::= SWITCH:s LEFT_PAREN expression:expr RIGHT_PAREN LEFT_BRACE case_
 
 case_list ::= case_list:list case_clause:c
             {: list.add(c); RESULT = list; :}
-            |
+            | /* empty */
             {: RESULT = new ArrayList(); :}
             ;
 
@@ -485,7 +475,7 @@ mul_expr ::= mul_expr:l MULTIPLY:op unary_expr:r
 
 unary_expr ::= NOT:op unary_expr:e
              {: RESULT = new UnaryOpNode(opleft, opright, "!", e); :}
-             | MINUS:op unary_expr:e %prec UMINUS
+             | MINUS:op unary_expr:e %prec
              {: RESULT = new UnaryOpNode(opleft, opright, "-", e); :}
              | primary:p
              {: RESULT = p; :}
@@ -529,7 +519,7 @@ func_call ::= IDENTIFIER:id LEFT_PAREN arg_list:args RIGHT_PAREN
 
 arg_list ::= non_empty_arg_list:a
            {: RESULT = a; :}
-           |
+           | /* empty */
            {: RESULT = new ArrayList(); :}
            ;
 
