@@ -1,2 +1,0 @@
-<Sintáctico: Símbolo inesperado en línea 4, columna 5, cerca de 'simon' />
-<Sintáctico: Error sintáctico no recuperable en línea 9, columna 2, cerca de 'EOF' />
