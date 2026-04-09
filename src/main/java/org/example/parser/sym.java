@@ -9,7 +9,7 @@ package org.example.parser;
 public class sym {
   /* terminals */
   public static final int DIVIDE = 54;
-  public static final int STRING_LITERAL = 58;
+  public static final int STRING_LITERAL = 60;
   public static final int RIGHT_PAREN = 37;
   public static final int RIGHT_BRACKET = 41;
   public static final int CONST = 21;
@@ -44,7 +44,9 @@ public class sym {
   public static final int RETURN = 13;
   public static final int GREATER_EQUAL = 45;
   public static final int TRUE = 29;
+  public static final int NEW = 58;
   public static final int error = 1;
+  public static final int NULL = 57;
   public static final int RIGHT_BRACE = 39;
   public static final int TRY = 24;
   public static final int BREAK = 11;
@@ -57,7 +59,7 @@ public class sym {
   public static final int DEFAULT = 7;
   public static final int FLOAT = 15;
   public static final int PUBLIC = 27;
-  public static final int DECIMAL_LITERAL = 60;
+  public static final int DECIMAL_LITERAL = 62;
   public static final int LEFT_PAREN = 36;
   public static final int STRING = 20;
   public static final int QUESTION = 34;
@@ -66,8 +68,8 @@ public class sym {
   public static final int LEFT_BRACKET = 40;
   public static final int PRINT = 2;
   public static final int DO = 10;
-  public static final int INTEGER_LITERAL = 59;
-  public static final int IDENTIFIER = 57;
+  public static final int INTEGER_LITERAL = 61;
+  public static final int IDENTIFIER = 59;
   public static final int CATCH = 25;
   public static final String[] terminalNames = new String[] {
   "EOF",
@@ -127,6 +129,8 @@ public class sym {
   "DIVIDE",
   "NOT",
   "UMINUS",
+  "NULL",
+  "NEW",
   "IDENTIFIER",
   "STRING_LITERAL",
   "INTEGER_LITERAL",

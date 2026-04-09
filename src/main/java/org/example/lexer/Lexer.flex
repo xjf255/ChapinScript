@@ -1,4 +1,4 @@
-package org.example.parser;
+package org.example.lexer;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -86,6 +86,8 @@ COMMENT_BLOCK_UNCLOSED  = "/*"[^*]*("*"+[^*/][^*]*)*"*"*
 "caquero"                  { return token(TokenType.PRIVATE); }
 "deplano"                  { return token(TokenType.TRUE); }
 "nel"                      { return token(TokenType.FALSE); }
+"inutil"                   { return token(TokenType.NULL); }
+"estrenar"                 { return token(TokenType.NEW); }
 
 /* Literales */
 {DECIMAL}                  { return token(TokenType.DECIMAL_LITERAL); }
