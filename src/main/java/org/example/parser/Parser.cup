@@ -110,6 +110,7 @@ terminal THROW, PUBLIC, PRIVATE, TRUE, FALSE, SEMICOLON, COMMA, DOT;
 terminal QUESTION, COLON, LEFT_PAREN, RIGHT_PAREN, LEFT_BRACE, RIGHT_BRACE, LEFT_BRACKET, RIGHT_BRACKET;
 terminal EQUALS, NOT_EQUALS, LESS_EQUAL, GREATER_EQUAL, AND, OR, ASSIGN, LESS_THAN;
 terminal GREATER_THAN, PLUS, MINUS, MULTIPLY, DIVIDE, NOT, UMINUS;
+terminal NULL, NEW;
 
 terminal String IDENTIFIER;
 terminal String STRING_LITERAL;
@@ -124,6 +125,7 @@ non terminal BlockNode block;
 non terminal DeclarationNode decl;
 non terminal ClassDeclNode decl_class;
 non terminal ConstructorDeclNode decl_constructors;
+non terminal NewObjectNode new_expr;
 non terminal ASTNode class_member;
 non terminal List class_member_list;
 non terminal String access_modifier;
@@ -281,6 +283,10 @@ class_member ::= decl:d
 decl_constructors ::= IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
                     {: RESULT = new ConstructorDeclNode(idleft, idright, id, (List<ParamNode>) p, b); :}
                     ;
+
+new_expr ::= NEW:n IDENTIFIER:id LEFT_PAREN arg_list:args RIGHT_PAREN
+           {: RESULT = new NewObjectNode(nleft, nright, id, (List<ExpressionNode>) args); :}
+           ;
 
 array_values ::= expression:e
                {:
@@ -502,6 +508,8 @@ primary ::= literal:l
           {: RESULT = a; :}
           | func_call:f
           {: RESULT = f; :}
+          | new_expr:n
+          {: RESULT = n; :}
           | THIS:t DOT IDENTIFIER:id
           {: RESULT = new MemberAccessNode(tleft, tright, new ThisNode(tleft, tright), id); :}
           | THIS:t DOT func_call:f
@@ -544,4 +552,6 @@ literal ::= INTEGER_LITERAL:i
           {: RESULT = new LiteralNode(tleft, tright, Boolean.TRUE); :}
           | FALSE:f
           {: RESULT = new LiteralNode(fleft, fright, Boolean.FALSE); :}
+          | NULL: n
+          {: RESULT = new LiteralNode(nleft, nright, null); :}
           ;
