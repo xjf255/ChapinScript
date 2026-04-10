@@ -24,16 +24,10 @@ public class Main {
 
     public static void main(String[] args) {
         try {
-            // Cambia aquí el archivo de prueba
-//            String source = FileManager.readFile("examples/valid/index.chs");
-//            String source = FileManager.readFile("examples/invalid/error_lexico_01.chs");
+            //String source = FileManager.readFile("examples/valid/index.chs");
+            //String source = FileManager.readFile("examples/invalid/error_lexico_01.chs");
             String source = FileManager.readFile("examples/valid/index.chs");
 
-            /*
-             * =========================
-             * 1. ANÁLISIS LÉXICO
-             * =========================
-             */
             Lexer tokenLexer = new Lexer(new StringReader(source));
 
             List<Token> tokens = new ArrayList<>();
@@ -54,11 +48,6 @@ public class Main {
                 tokenLexer.getErrors().forEach(System.err::println);
             }
 
-            /*
-             * =========================
-             * 2. ANÁLISIS SINTÁCTICO + AST
-             * =========================
-             */
             Lexer parserLexer = new Lexer(new StringReader(source));
             LexerAdapter lexerAdapter = new LexerAdapter(parserLexer);
             Parser parser = new Parser(lexerAdapter);
@@ -91,11 +80,6 @@ public class Main {
                 parser.getSyntaxErrors().forEach(System.err::println);
             }
 
-            /*
-             * =========================
-             * 3. RESULTADO DEL AST
-             * =========================
-             */
             System.out.println("\n====================================");
             System.out.println("RESULTADO DEL AST");
             System.out.println("====================================");

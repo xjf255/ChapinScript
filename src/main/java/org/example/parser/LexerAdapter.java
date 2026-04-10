@@ -46,6 +46,9 @@ public class LexerAdapter implements Scanner {
             case BOOL     -> new Symbol(sym.BOOL, token.getLine(), token.getColumn(),token.getLexeme());
             case VOID     -> new Symbol(sym.VOID, token.getLine(), token.getColumn(),token.getLexeme());
             case STRING   -> new Symbol(sym.STRING, token.getLine(), token.getColumn(),token.getLexeme());
+            case NEW      -> new Symbol(sym.NEW, token.getLine(), token.getColumn(),token.getLexeme());
+            case UMINUS   -> new Symbol(sym.UMINUS, token.getLine(), token.getColumn(),token.getLexeme());
+            case NULL     -> new Symbol(sym.NULL, token.getLine(), token.getColumn(),token.getLexeme());
             case CONST    -> new Symbol(sym.CONST, token.getLine(), token.getColumn(),token.getLexeme());
             case CLASS    -> new Symbol(sym.CLASS, token.getLine(), token.getColumn(),token.getLexeme());
             case THIS     -> new Symbol(sym.THIS, token.getLine(), token.getColumn(),token.getLexeme());
