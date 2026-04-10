@@ -1,15 +1,15 @@
-package org.example.reports;
+package org.example.semantic;
 
 public class SymbolInfo {
     private final String name;
     private final String category;
-    private final String dataType;
+    private final Type dataType;
     private final String scope;
     private final int line;
     private final int column;
     private final String value;
 
-    public SymbolInfo(String name, String category, String dataType, String scope, int line, int column, String value) {
+    public SymbolInfo(String name, String category, Type dataType, String scope, int line, int column, String value) {
         this.name = name;
         this.category = category;
         this.dataType = dataType;
@@ -27,7 +27,7 @@ public class SymbolInfo {
         return category;
     }
 
-    public String getDataType() {
+    public Type getDataType() {
         return dataType;
     }
 
