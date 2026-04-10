@@ -8,6 +8,8 @@ import org.example.lexer.TokenType;
 import org.example.parser.LexerAdapter;
 import org.example.parser.Parser;
 import org.example.reports.HtmlReportsGenerator;
+import org.example.semantic.SemanticAnalyzer;
+import org.example.semantic.SemanticError;
 import org.example.semantic.SymbolInfo;
 import org.example.semantic.SymbolTable;
 import org.example.utils.FileManager;
@@ -107,18 +109,18 @@ public class Main {
                 System.out.println("No se pudo construir el AST.");
             }
 
-            /*
-             * =========================
-             * 4. TABLA DE SÍMBOLOS BÁSICA DESDE TOKENS
-             * =========================
-             */
-            List<SymbolInfo> symbols = SymbolTable.generate(tokens);
+            SemanticAnalyzer analyzer = new SemanticAnalyzer();
+            analyzer.analyze(ast);
 
-            /*
-             * =========================
-             * 5. SALIDA A ARCHIVOS
-             * =========================
-             */
+            if (!analyzer.getErrors().isEmpty()) {
+                System.out.println("=== ERRORES SEMÁNTICOS ===");
+                for (SemanticError error : analyzer.getErrors()) {
+                    System.out.println(error);
+                }
+            } else {
+                System.out.println("Análisis semántico completado sin errores.");
+            }
+
             FileManager.writeFile(
                     "output/tokens.txt",
                     tokens.stream()

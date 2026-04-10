@@ -174,7 +174,7 @@ public class HtmlReportsGenerator {
                 html.append("<td>").append(i + 1).append("</td>");
                 html.append("<td>").append(escape(s.getName())).append("</td>");
                 html.append("<td>").append(escape(s.getCategory())).append("</td>");
-                html.append("<td>").append(escape(s.getDataType())).append("</td>");
+                html.append("<td>").append(escape(s.getDataType().toString())).append("</td>");
                 html.append("<td>").append(escape(s.getScope())).append("</td>");
                 html.append("<td>").append(s.getLine()).append("</td>");
                 html.append("<td>").append(s.getColumn()).append("</td>");
