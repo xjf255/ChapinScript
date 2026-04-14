@@ -41,7 +41,7 @@ INVALID_IDENTIFIER      = ({LETTER}|{ACCENTED_CHAR})({LETTER}|{DIGIT}|{ACCENTED_
 INTEGER                 = {DIGIT}+
 DECIMAL                 = {DIGIT}+"."{DIGIT}+
 WHITESPACE              = [ \t\r\n]+
-STRING                  = \"([^\"\\\n]|\\.)*\" | \'([^\'\\\n]|\\.)*\'
+STRING_LITERAL_RULE     = \"([^\"\\\n]|\\.)*\" | \'([^\'\\\n]|\\.)*\'
 STRING_UNCLOSED         = \"([^\"\\\n]|\\.)*\n | \'([^\'\\\n]|\\.)*\n
 COMMENT_LINE            = "//"[^\n]*
 COMMENT_BLOCK           = "/*"[^*]*("*"+[^*/][^*]*)*"*"+"/"
@@ -89,44 +89,54 @@ COMMENT_BLOCK_UNCLOSED  = "/*"[^*]*("*"+[^*/][^*]*)*"*"*
 "inutil"                   { return token(TokenType.NULL); }
 "estrenar"                 { return token(TokenType.NEW); }
 
+/* Operadores compuestos */
+"GEMELOS"                  { return token(TokenType.EQUALS); }             // ==
+"CRUZ_DAR"                 { return token(TokenType.PLUS_ASSIGN); }        // +=
+"RAYA_DAR"                 { return token(TokenType.MINUS_ASSIGN); }       // -=
+"ESTRELLA_DAR"             { return token(TokenType.MULTIPLY_ASSIGN); }    // *=
+"RAMPA_DAR"                { return token(TokenType.DIVIDE_ASSIGN); }      // /=
+"SOBRA_DAR"                { return token(TokenType.MOD_ASSIGN); }         // %=
+"DIVORCIO"                 { return token(TokenType.NOT_EQUALS); }         // !=
+"BASE"                     { return token(TokenType.LESS_EQUAL); }         // <=
+"TECHO"                    { return token(TokenType.GREATER_EQUAL); }      // >=
+"CADENA"                   { return token(TokenType.AND); }                // &&
+"VALLAS"                   { return token(TokenType.OR); }                 // ||
+"CRUZ_CRUZ"                { return token(TokenType.INCREMENT); }          // ++
+"RAYA_RAYA"                { return token(TokenType.DECREMENT); }          // --
+
+/* Operadores simples */
+"DAR"                      { return token(TokenType.ASSIGN); }             // =
+"PICO"                     { return token(TokenType.LESS_THAN); }          // <
+"BOCA"                     { return token(TokenType.GREATER_THAN); }       // >
+"CRUZ"                     { return token(TokenType.PLUS); }               // +
+"RAYA"                     { return token(TokenType.MINUS); }              // -
+"ESTRELLA"                 { return token(TokenType.MULTIPLY); }           // *
+"RAMPA"                    { return token(TokenType.DIVIDE); }             // /
+"SOBRA"                    { return token(TokenType.MOD); }                // %
+"GRITO"                    { return token(TokenType.NOT); }                // !
+
+/* Delimitadores */
+"FRENO"                    { return token(TokenType.SEMICOLON); }          // ;
+"SEMILLA"                  { return token(TokenType.COMMA); }              // ,
+"ATOMO"                    { return token(TokenType.DOT); }                // .
+"DUDA"                     { return token(TokenType.QUESTION); }           // ?
+"OJOS"                     { return token(TokenType.COLON); }              // :
+"ABRAZO"                   { return token(TokenType.LEFT_PAREN); }         // (
+"RESPANDO"                 { return token(TokenType.RIGHT_PAREN); }        // )
+"ALMA"                     { return token(TokenType.LEFT_BRACE); }         // {
+"CUERPO"                   { return token(TokenType.RIGHT_BRACE); }        // }
+"CAJON"                    { return token(TokenType.LEFT_BRACKET); }       // [
+"TAPA"                     { return token(TokenType.RIGHT_BRACKET); }      // ]
+
 /* Literales */
 {DECIMAL}                  { return token(TokenType.DECIMAL_LITERAL); }
 {INTEGER}                  { return token(TokenType.INTEGER_LITERAL); }
-{STRING}                   { return token(TokenType.STRING_LITERAL); }
+{STRING_LITERAL_RULE}      { return token(TokenType.STRING_LITERAL); }
 {STRING_UNCLOSED}          { lexicalError("Cadena de texto no cerrada"); return token(TokenType.ERROR); }
 
 /* Identificadores */
 {INVALID_IDENTIFIER}       { lexicalError("Identificador inválido: no se permiten tildes ni la letra ñ"); return token(TokenType.ERROR); }
 {IDENTIFIER}               { return token(TokenType.IDENTIFIER); }
-
-/* Operadores */
-"=="                       { return token(TokenType.EQUALS); }
-"!="                       { return token(TokenType.NOT_EQUALS); }
-"<="                       { return token(TokenType.LESS_EQUAL); }
-">="                       { return token(TokenType.GREATER_EQUAL); }
-"&&"                       { return token(TokenType.AND); }
-"||"                       { return token(TokenType.OR); }
-"="                        { return token(TokenType.ASSIGN); }
-"<"                        { return token(TokenType.LESS_THAN); }
-">"                        { return token(TokenType.GREATER_THAN); }
-"+"                        { return token(TokenType.PLUS); }
-"-"                        { return token(TokenType.MINUS); }
-"*"                        { return token(TokenType.MULTIPLY); }
-"/"                        { return token(TokenType.DIVIDE); }
-"!"                        { return token(TokenType.NOT); }
-
-/* Delimitadores */
-";"                        { return token(TokenType.SEMICOLON); }
-","                        { return token(TokenType.COMMA); }
-"."                        { return token(TokenType.DOT); }
-"?"                        { return token(TokenType.QUESTION); }
-":"                        { return token(TokenType.COLON); }
-"("                        { return token(TokenType.LEFT_PAREN); }
-")"                        { return token(TokenType.RIGHT_PAREN); }
-"{"                        { return token(TokenType.LEFT_BRACE); }
-"}"                        { return token(TokenType.RIGHT_BRACE); }
-"["                        { return token(TokenType.LEFT_BRACKET); }
-"]"                        { return token(TokenType.RIGHT_BRACKET); }
 
 <<EOF>>                    { return token(TokenType.EOF); }
 

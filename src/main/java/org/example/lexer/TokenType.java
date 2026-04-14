@@ -1,6 +1,6 @@
 package org.example.lexer;
 
-public enum TokenType{
+public enum TokenType {
     PRINT,
     IF,
     ELSE,
@@ -20,87 +20,66 @@ public enum TokenType{
     BOOL,
     VOID,
     STRING,
-    NULL,
     CONST,
     CLASS,
     THIS,
-    NEW,
     TRY,
     CATCH,
     THROW,
-    EXCEPTION,
     PUBLIC,
     PRIVATE,
     TRUE,
     FALSE,
-    UMINUS,
-
+    NULL,
+    NEW,
+    /* Literales */
     IDENTIFIER,
     INTEGER_LITERAL,
     DECIMAL_LITERAL,
     STRING_LITERAL,
-    CHAR_LITERAL,
 
-    PLUS,
-    MINUS,
-    MULTIPLY,
-    DIVIDE,
-    ASSIGN,
-    EQUALS,
-    NOT_EQUALS,
-    LESS_THAN,
-    GREATER_THAN,
-    LESS_EQUAL,
-    GREATER_EQUAL,
-    AND,
-    OR,
-    NOT,
+    /* Operadores */
+    EQUALS,             // GEMELOS
+    NOT_EQUALS,         // DIVORCIO
+    LESS_EQUAL,         // BASE
+    GREATER_EQUAL,      // TECHO
+    LESS_THAN,          // PICO
+    GREATER_THAN,       // BOCA
+    AND,                // CADENA
+    OR,                 // VALLAS
+    NOT,                // GRITO
 
-    SEMICOLON,
-    COMMA,
-    DOT,
-    COLON,
-    QUESTION,
-    LEFT_PAREN,
-    RIGHT_PAREN,
-    LEFT_BRACE,
-    RIGHT_BRACE,
-    LEFT_BRACKET,
-    RIGHT_BRACKET,
+    /* Operadores de asignación */
+    ASSIGN,             // DAR
+    PLUS_ASSIGN,        // CRUZ_DAR
+    MINUS_ASSIGN,       // RAYA_DAR
+    MULTIPLY_ASSIGN,    // ESTRELLA_DAR
+    DIVIDE_ASSIGN,      // RAMPA_DAR
+    MOD_ASSIGN,         // SOBRA_DAR
 
+    /* Operadores aritméticos */
+    PLUS,               // CRUZ
+    MINUS,              // RAYA
+    MULTIPLY,           // ESTRELLA
+    DIVIDE,             // RAMPA
+    MOD,                // SOBRA
+    INCREMENT,          // CRUZ_CRUZ
+    DECREMENT,          // RAYA_RAYA
+
+    /* Delimitadores */
+    SEMICOLON,          // FRENO
+    COMMA,              // SEMILLA
+    DOT,                // ATOMO
+    QUESTION,           // DUDA
+    COLON,              // OJOS
+    LEFT_PAREN,         // ABRAZO
+    RIGHT_PAREN,        // RESPANDO
+    LEFT_BRACE,         // ALMA
+    RIGHT_BRACE,        // CUERPO
+    LEFT_BRACKET,       // CAJON
+    RIGHT_BRACKET,      // TAPA
+
+    /* Especiales */
     EOF,
     ERROR
 }
-
-/*
-    CHOTEAR,
-    SIMON,
-    CHAPUS,
-    CHIRIPA,
-    WASA,
-    PORSIACASO,
-    VUELTA,
-    SEGUILE,
-    DALE,
-    CUAJE,
-    CHANIN,
-    VONOS,
-    CABAL,
-    PISTO,
-    PISTAZO,
-    CACHITO,
-    CASACA,
-    NIMAIS,
-    CHISME,
-    FIJO,
-    BANDA,
-    VOS,
-    CALALE,
-    ATRAPALO,
-    MORONGAZO,
-    BARRIO,
-    CAQUERO,
-    DEPLANO,
-    NEL
-
-* */

@@ -61,7 +61,7 @@ public class HtmlReportsGenerator {
                 html.append("<td>").append(escape(error.getDescription())).append("</td>");
                 html.append("<td>").append(error.getLine()).append("</td>");
                 html.append("<td>").append(error.getColumn()).append("</td>");
-                html.append("</tr>");
+                html.append("</tr>\n");
             }
 
             html.append("</table>");
@@ -86,7 +86,7 @@ public class HtmlReportsGenerator {
                 html.append("<td>")
                         .append(escape(String.valueOf(syntacticErrors.get(i))))
                         .append("</td>");
-                html.append("</tr>");
+                html.append("</tr>\n");
             }
 
             html.append("</table>");
@@ -120,7 +120,7 @@ public class HtmlReportsGenerator {
             html.append("<tr>");
             html.append("<td>").append(i + 1).append("</td>");
             html.append("<td>").append(escape(tokens.get(i).toString())).append("</td>");
-            html.append("</tr>");
+            html.append("</tr>\n");
         }
 
         html.append("</table>");
@@ -179,7 +179,7 @@ public class HtmlReportsGenerator {
                 html.append("<td>").append(s.getLine()).append("</td>");
                 html.append("<td>").append(s.getColumn()).append("</td>");
                 html.append("<td>").append(escape(s.getValue())).append("</td>");
-                html.append("</tr>");
+                html.append("</tr>\n");
             }
 
             html.append("</table>");

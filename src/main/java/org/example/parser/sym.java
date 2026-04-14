@@ -8,68 +8,76 @@ package org.example.parser;
 /** CUP generated class containing symbol constants. */
 public class sym {
   /* terminals */
-  public static final int DIVIDE = 54;
-  public static final int STRING_LITERAL = 60;
-  public static final int RIGHT_PAREN = 37;
-  public static final int RIGHT_BRACKET = 41;
+  public static final int DIVIDE = 56;
+  public static final int STRING_LITERAL = 68;
+  public static final int RIGHT_PAREN = 39;
+  public static final int INCREMENT = 64;
+  public static final int RIGHT_BRACKET = 43;
   public static final int CONST = 21;
   public static final int CHAR = 17;
-  public static final int EQUALS = 42;
-  public static final int UMINUS = 56;
+  public static final int EQUALS = 44;
+  public static final int UMINUS = 66;
+  public static final int PLUS_ASSIGN = 59;
+  public static final int MULTIPLY_ASSIGN = 61;
   public static final int CASE = 6;
   public static final int DOUBLE = 16;
   public static final int PRIVATE = 28;
   public static final int CONTINUE = 12;
   public static final int INT = 14;
-  public static final int MINUS = 52;
+  public static final int DECREMENT = 65;
+  public static final int MINUS = 54;
   public static final int FOR = 8;
-  public static final int GREATER_THAN = 50;
-  public static final int NOT = 55;
-  public static final int AND = 46;
-  public static final int SEMICOLON = 31;
-  public static final int OR = 47;
-  public static final int LEFT_BRACE = 38;
+  public static final int GREATER_THAN = 52;
+  public static final int NOT = 58;
+  public static final int AND = 48;
+  public static final int SEMICOLON = 33;
+  public static final int OR = 49;
+  public static final int LEFT_BRACE = 40;
   public static final int BOOL = 18;
-  public static final int COMMA = 32;
+  public static final int COMMA = 34;
   public static final int THROW = 26;
   public static final int CLASS = 22;
-  public static final int LESS_EQUAL = 44;
-  public static final int MULTIPLY = 53;
-  public static final int PLUS = 51;
-  public static final int ASSIGN = 48;
+  public static final int LESS_EQUAL = 46;
+  public static final int MULTIPLY = 55;
+  public static final int PLUS = 53;
+  public static final int ASSIGN = 50;
   public static final int IF = 3;
   public static final int THIS = 23;
-  public static final int DOT = 33;
+  public static final int DOT = 35;
   public static final int EOF = 0;
   public static final int RETURN = 13;
-  public static final int GREATER_EQUAL = 45;
+  public static final int GREATER_EQUAL = 47;
   public static final int TRUE = 29;
-  public static final int NEW = 58;
+  public static final int NEW = 32;
   public static final int error = 1;
-  public static final int NULL = 57;
-  public static final int RIGHT_BRACE = 39;
+  public static final int RIGHT_BRACE = 41;
+  public static final int NULL = 31;
   public static final int TRY = 24;
+  public static final int MOD = 57;
   public static final int BREAK = 11;
   public static final int VOID = 19;
+  public static final int MOD_ASSIGN = 63;
   public static final int SWITCH = 5;
-  public static final int COLON = 35;
+  public static final int COLON = 37;
   public static final int ELSE = 4;
   public static final int WHILE = 9;
-  public static final int NOT_EQUALS = 43;
+  public static final int DIVIDE_ASSIGN = 62;
+  public static final int NOT_EQUALS = 45;
   public static final int DEFAULT = 7;
   public static final int FLOAT = 15;
   public static final int PUBLIC = 27;
-  public static final int DECIMAL_LITERAL = 62;
-  public static final int LEFT_PAREN = 36;
+  public static final int DECIMAL_LITERAL = 70;
+  public static final int LEFT_PAREN = 38;
+  public static final int QUESTION = 36;
   public static final int STRING = 20;
-  public static final int QUESTION = 34;
   public static final int FALSE = 30;
-  public static final int LESS_THAN = 49;
-  public static final int LEFT_BRACKET = 40;
+  public static final int LESS_THAN = 51;
+  public static final int LEFT_BRACKET = 42;
+  public static final int MINUS_ASSIGN = 60;
   public static final int PRINT = 2;
   public static final int DO = 10;
-  public static final int INTEGER_LITERAL = 61;
-  public static final int IDENTIFIER = 59;
+  public static final int INTEGER_LITERAL = 69;
+  public static final int IDENTIFIER = 67;
   public static final int CATCH = 25;
   public static final String[] terminalNames = new String[] {
   "EOF",
@@ -103,6 +111,8 @@ public class sym {
   "PRIVATE",
   "TRUE",
   "FALSE",
+  "NULL",
+  "NEW",
   "SEMICOLON",
   "COMMA",
   "DOT",
@@ -127,10 +137,16 @@ public class sym {
   "MINUS",
   "MULTIPLY",
   "DIVIDE",
+  "MOD",
   "NOT",
+  "PLUS_ASSIGN",
+  "MINUS_ASSIGN",
+  "MULTIPLY_ASSIGN",
+  "DIVIDE_ASSIGN",
+  "MOD_ASSIGN",
+  "INCREMENT",
+  "DECREMENT",
   "UMINUS",
-  "NULL",
-  "NEW",
   "IDENTIFIER",
   "STRING_LITERAL",
   "INTEGER_LITERAL",
