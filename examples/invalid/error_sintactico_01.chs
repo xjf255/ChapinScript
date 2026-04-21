@@ -1,9 +1,9 @@
-nimais main() {
-    cabal edad = 20
+nimais main ABRAZO RESPANDO ALMA
+    cabal edad DAR 20
 
-    simon (edad > 18 {
-        chotear("Sos mayor de edad")
-    } chapus {
-        chotear("Sos menor de edad")
-    }
-}
+    simon ABRAZO edad BOCA 18 ALMA
+        chotear ABRAZO "Sos mayor de edad" RESPANDO
+    CUERPO chapus ALMA
+        chotear ABRAZO "Sos menor de edad" RESPANDO
+    CUERPO
+CUERPO

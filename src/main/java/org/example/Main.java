@@ -1,7 +1,5 @@
 package org.example;
 
-import org.example.ast.ASTPrinter;
-import org.example.ast.ProgramNode;
 import org.example.lexer.Lexer;
 import org.example.lexer.Token;
 import org.example.lexer.TokenType;
@@ -20,20 +18,23 @@ import java.util.stream.Collectors;
 
 public class Main {
 
+    private static final String DEFAULT_INPUT = "examples/valid/index.chs";
+    private static final String OUTPUT_DIR = "output";
+
     public static void main(String[] args) {
         try {
-            //String source = FileManager.readFile("examples/valid/index.chs");
-            //String source = FileManager.readFile("examples/invalid/error_lexico_01.chs");
-            String source = FileManager.readFile("examples/valid/index.chs");
+            String inputPath = args.length > 0 ? args[0] : DEFAULT_INPUT;
+            String source = FileManager.readFile(inputPath);
 
             Lexer tokenLexer = new Lexer(new StringReader(source));
-
             List<Token> tokens = new ArrayList<>();
+
             Token token;
-            while ((token = tokenLexer.yylex()) != null
-                    && token.getType() != TokenType.EOF) {
+            while ((token = tokenLexer.yylex()) != null && token.getType() != TokenType.EOF) {
                 tokens.add(token);
             }
+
+            boolean hasLexicalErrors = !tokenLexer.getErrors().isEmpty();
 
             System.out.println("====================================");
             System.out.println("RESULTADO DEL ANÁLISIS LÉXICO");
@@ -41,106 +42,100 @@ public class Main {
             System.out.println("Tokens encontrados : " + tokens.size());
             System.out.println("Errores léxicos    : " + tokenLexer.getErrors().size());
 
-            if (!tokenLexer.getErrors().isEmpty()) {
+            if (hasLexicalErrors) {
                 System.err.println("\nLista de errores léxicos:");
                 tokenLexer.getErrors().forEach(System.err::println);
             }
 
-            Lexer parserLexer = new Lexer(new StringReader(source));
-            LexerAdapter lexerAdapter = new LexerAdapter(parserLexer);
-            Parser parser = new Parser(lexerAdapter);
+            String cppCode = null;
+            Parser parser = null;
 
-            ProgramNode ast = null;
-            String prettyAST = null;
+            if (!hasLexicalErrors) {
+                Lexer parserLexer = new Lexer(new StringReader(source));
+                LexerAdapter lexerAdapter = new LexerAdapter(parserLexer);
+                parser = new Parser(lexerAdapter);
 
-            try {
-                Object parseResult = parser.parse().value;
-
-                if (parseResult instanceof ProgramNode) {
-                    ast = (ProgramNode) parseResult;
-                    prettyAST = ASTPrinter.format(ast,0);
+                try {
+                    Object parseResult = parser.parse().value;
+                    if (parseResult instanceof String) {
+                        cppCode = (String) parseResult;
+                    }
+                } catch (Exception e) {
+                    System.err.println("\nSe produjo una excepción durante el parseo:");
+                    System.err.println(e.getMessage());
                 }
-            } catch (Exception e) {
-                System.err.println("\nSe produjo una excepción durante el parseo:");
-                System.err.println(e.getMessage());
             }
+
+            List<Parser.SyntaxError> syntaxErrors =
+                    parser != null ? parser.getSyntaxErrors() : new ArrayList<>();
+
+            boolean hasSyntaxErrors = !syntaxErrors.isEmpty();
 
             System.out.println("\n====================================");
             System.out.println("RESULTADO DEL ANÁLISIS SINTÁCTICO");
             System.out.println("====================================");
 
-            if (parser.getSyntaxErrors().isEmpty()) {
+            if (hasLexicalErrors) {
+                System.out.println("Análisis sintáctico omitido por errores léxicos.");
+            } else if (!hasSyntaxErrors) {
                 System.out.println("Parseo exitoso");
             } else {
                 System.out.println("Parseo con errores");
-                System.out.println("Errores sintácticos: " + parser.getSyntaxErrors().size());
+                System.out.println("Errores sintácticos: " + syntaxErrors.size());
                 System.err.println("\nLista de errores sintácticos:");
-                parser.getSyntaxErrors().forEach(System.err::println);
+                syntaxErrors.forEach(System.err::println);
             }
 
             System.out.println("\n====================================");
-            System.out.println("RESULTADO DEL AST");
+            System.out.println("RESULTADO DE LA TRANSPILACIÓN");
             System.out.println("====================================");
 
-            if (ast != null) {
-                System.out.println("AST generado correctamente.");
-                System.out.println("Nodo raíz: " + ast.getClass().getSimpleName());
-                System.out.println("Contenido del AST:");
-                System.out.println(prettyAST);
+            boolean transpilationOk = !hasLexicalErrors && !hasSyntaxErrors && cppCode != null;
+
+            if (transpilationOk) {
+                System.out.println("Código C++ generado correctamente.");
+                System.out.println("Salida transpilada:");
+                System.out.println(cppCode);
+            } else if (hasLexicalErrors || hasSyntaxErrors) {
+                System.out.println("No se generó código C++ válido debido a errores de compilación.");
             } else {
-                System.out.println("No se pudo construir el AST.");
+                System.out.println("No se pudo generar el código C++.");
             }
 
             List<SymbolInfo> symbols = SymbolTableGenerator.generate(tokens);
 
             FileManager.writeFile(
-                    "output/tokens.txt",
-                    tokens.stream()
-                            .map(Object::toString)
-                            .collect(Collectors.joining(System.lineSeparator()))
-            );
-
-            FileManager.writeFile(
-                    "output/lexical_errors.txt",
-                    tokenLexer.getErrors().stream()
-                            .map(Object::toString)
-                            .collect(Collectors.joining(System.lineSeparator()))
-            );
-
-            FileManager.writeFile(
-                    "output/syntactic_errors.txt",
-                    parser.getSyntaxErrors().stream()
-                            .map(Object::toString)
-                            .collect(Collectors.joining(System.lineSeparator()))
-            );
-
-            FileManager.writeFile(
-                    "output/ast.txt",
-                    ast != null ? prettyAST : "No se pudo construir el AST."
+                    OUTPUT_DIR + "/output.cpp",
+                    transpilationOk
+                            ? cppCode
+                            : "// No se generó código C++ válido por errores léxicos o sintácticos."
             );
 
             HtmlReportsGenerator.generateErrorsReport(
-                    "output/errors_report.html",
+                    OUTPUT_DIR + "/errors_report.html",
                     tokenLexer.getErrors(),
-                    parser.getSyntaxErrors()
+                    syntaxErrors
             );
 
             HtmlReportsGenerator.generateTokensReport(
-                    "output/tokens_report.html",
+                    OUTPUT_DIR + "/tokens_report.html",
                     tokens
             );
 
             HtmlReportsGenerator.generateSymbolTableReport(
-                    "output/symbol_table.html",
+                    OUTPUT_DIR + "/symbol_table.html",
                     symbols
             );
 
             System.out.println("\n====================================");
             System.out.println("RESUMEN FINAL");
             System.out.println("====================================");
-            System.out.println("Símbolos encontrados: " + symbols.size());
-            System.out.println("AST generado        : " + (ast != null ? "Sí" : "No"));
-            System.out.println("Reportes generados correctamente en la carpeta output.");
+            System.out.println("Símbolos encontrados : " + symbols.size());
+            System.out.println("Errores léxicos      : " + tokenLexer.getErrors().size());
+            System.out.println("Errores sintácticos  : " + syntaxErrors.size());
+            System.out.println("C++ generado         : " + (transpilationOk ? "Sí" : "No"));
+            System.out.println("Archivo generado     : " + OUTPUT_DIR + "/output.cpp");
+            System.out.println("Reportes generados correctamente en la carpeta " + OUTPUT_DIR + ".");
 
         } catch (IOException e) {
             System.err.println("Error al leer/escribir archivo: " + e.getMessage());

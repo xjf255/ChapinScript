@@ -81,6 +81,8 @@ parser code {:
         if (token != null) {
             if (token.value != null) {
                 lexeme = token.value.toString();
+            } else if (token.sym == sym.EOF) {
+                lexeme = "EOF";
             }
             line = token.left;
             column = token.right;
@@ -115,7 +117,38 @@ parser code {:
 
     @Override
     public void syntax_error(Symbol cur_token) {
-        addSyntaxError(cur_token, "Símbolo inesperado");
+        String message = "Símbolo inesperado";
+
+        if (cur_token != null) {
+            switch (cur_token.sym) {
+                case sym.SEMICOLON:
+                    message = "Punto y coma inesperado";
+                    break;
+                case sym.RIGHT_BRACE:
+                    message = "Llave de cierre inesperada";
+                    break;
+                case sym.RIGHT_PAREN:
+                    message = "Paréntesis de cierre inesperado";
+                    break;
+                case sym.ELSE:
+                    message = "ELSE sin IF válido previo";
+                    break;
+                case sym.CASE:
+                    message = "CASE fuera de un SWITCH válido";
+                    break;
+                case sym.DEFAULT:
+                    message = "DEFAULT fuera de un SWITCH válido";
+                    break;
+                case sym.EOF:
+                    message = "Fin de archivo inesperado";
+                    break;
+                default:
+                    message = "Símbolo inesperado";
+                    break;
+            }
+        }
+
+        addSyntaxError(cur_token, message);
     }
 
     @Override
@@ -413,14 +446,44 @@ statement ::= decl:d
             {: RESULT = new Fragment(Fragment.STATEMENT, "return " + e + ";"); :}
             | RETURN:r SEMICOLON
             {: RESULT = new Fragment(Fragment.STATEMENT, "return;"); :}
+            | RETURN:r expression:e error
+            {:
+                addSyntaxError(eleft, eright, "error", "Falta ';' después de return");
+                RESULT = new Fragment(Fragment.STATEMENT, "return " + e + ";");
+            :}
             | BREAK:b SEMICOLON
             {: RESULT = new Fragment(Fragment.STATEMENT, "break;"); :}
+            | BREAK:b error
+            {:
+                addSyntaxError(eleft, eright, "error", "Falta ';' después de break");
+                RESULT = new Fragment(Fragment.STATEMENT, "break;");
+            :}
             | CONTINUE:c SEMICOLON
             {: RESULT = new Fragment(Fragment.STATEMENT, "continue;"); :}
+            | CONTINUE:c error
+            {:
+                addSyntaxError(eleft, eright, "error", "Falta ';' después de continue");
+                RESULT = new Fragment(Fragment.STATEMENT, "continue;");
+            :}
             | PRINT:p LEFT_PAREN expression:e RIGHT_PAREN SEMICOLON
             {: RESULT = new Fragment(Fragment.STATEMENT, "std::cout << " + e + " << std::endl;"); :}
+            | PRINT:p LEFT_PAREN expression:e RIGHT_PAREN error
+            {:
+                addSyntaxError(eleft, eright, "error", "Falta ';' después de print");
+                RESULT = new Fragment(Fragment.STATEMENT, "std::cout << " + e + " << std::endl;");
+            :}
+            | PRINT:p LEFT_PAREN error:e RIGHT_PAREN SEMICOLON
+            {:
+                addSyntaxError(eleft, eright, "error", "Expresión inválida en print");
+                RESULT = new Fragment(Fragment.STATEMENT, "std::cout << \"\" << std::endl;");
+            :}
             | expression:e SEMICOLON
             {: RESULT = new Fragment(Fragment.STATEMENT, e + ";"); :}
+            | expression:e error
+            {:
+                addSyntaxError(eleft, eright, "error", "Falta ';' al final de la expresión");
+                RESULT = new Fragment(Fragment.STATEMENT, e + ";");
+            :}
             | error:e SEMICOLON
               {:
                   addSyntaxError(eleft, eright, "error", "Sentencia inválida");
@@ -430,6 +493,11 @@ statement ::= decl:d
 
 block ::= LEFT_BRACE:l statement_list:s RIGHT_BRACE
         {: RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}"; :}
+        | LEFT_BRACE:l statement_list:s error:e
+        {:
+            addSyntaxError(eleft, eright, "EOF", "Falta llave de cierre '}' para el bloque");
+            RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}";
+        :}
         ;
 
 access_modifier ::= PUBLIC
@@ -468,6 +536,11 @@ decl ::= access_modifier:acc type:t IDENTIFIER:id SEMICOLON
 
 decl_class ::= CLASS:c IDENTIFIER:id LEFT_BRACE class_member_list:members RIGHT_BRACE
              {: RESULT = new Fragment(Fragment.CLASS, "class " + id + " {\n" + joinClassMembers(members) + "};"); :}
+             | CLASS:c IDENTIFIER:id LEFT_BRACE class_member_list:members error:e
+             {:
+                addSyntaxError(eleft, eright, "EOF", "Falta llave de cierre '}' en la clase");
+                RESULT = new Fragment(Fragment.CLASS, "class " + id + " {\n" + joinClassMembers(members) + "};");
+             :}
              ;
 
 class_member_list ::= class_member_list:list class_member:m
@@ -484,10 +557,20 @@ class_member ::= decl:d
 
 decl_constructors ::= IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
                     {: RESULT = buildConstructor(id, p, b); :}
+                    | IDENTIFIER:id LEFT_PAREN error:e RIGHT_PAREN block:b
+                    {:
+                        addSyntaxError(eleft, eright, "error", "Parámetros inválidos en constructor");
+                        RESULT = buildConstructor(id, new ArrayList(), b);
+                    :}
                     ;
 
 new_expr ::= NEW:n IDENTIFIER:id LEFT_PAREN arg_list:args RIGHT_PAREN
            {: RESULT = "new " + id + "(" + argsToCpp(args) + ")"; :}
+           | NEW:n IDENTIFIER:id LEFT_PAREN error:e RIGHT_PAREN
+           {:
+                addSyntaxError(eleft, eright, "error", "Argumentos inválidos en creación de objeto");
+                RESULT = "new " + id + "()";
+           :}
            ;
 
 array_values ::= expression:e
@@ -544,6 +627,11 @@ if_stmt ::= IF:i LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk
                 addSyntaxError(eleft, eright, "error", "Condición inválida en if");
                 RESULT = new Fragment(Fragment.STATEMENT, "if (false) " + b);
             :}
+          | IF:i LEFT_PAREN expression:cond error:e block:b
+            {:
+                addSyntaxError(eleft, eright, "error", "Falta ')' en la condición del if");
+                RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + b);
+            :}
           ;
 
 while_stmt ::= WHILE:w LEFT_PAREN expression:cond RIGHT_PAREN block:b
@@ -553,10 +641,20 @@ while_stmt ::= WHILE:w LEFT_PAREN expression:cond RIGHT_PAREN block:b
                    addSyntaxError(eleft, eright, "error", "Condición inválida en while");
                    RESULT = new Fragment(Fragment.STATEMENT, "while (false) " + b);
                :}
+             | WHILE:w LEFT_PAREN expression:cond error:e block:b
+               {:
+                   addSyntaxError(eleft, eright, "error", "Falta ')' en la condición del while");
+                   RESULT = new Fragment(Fragment.STATEMENT, "while (" + cond + ") " + b);
+               :}
              ;
 
 do_while_stmt ::= DO:d block:b WHILE LEFT_PAREN expression:cond RIGHT_PAREN SEMICOLON
                 {: RESULT = new Fragment(Fragment.STATEMENT, "do " + b + " while (" + cond + ");"); :}
+                | DO:d block:b WHILE LEFT_PAREN expression:cond RIGHT_PAREN error:e
+                {:
+                    addSyntaxError(eleft, eright, "error", "Falta ';' al final del do-while");
+                    RESULT = new Fragment(Fragment.STATEMENT, "do " + b + " while (" + cond + ");");
+                :}
                 ;
 
 for_stmt ::= FOR:f LEFT_PAREN for_init:init SEMICOLON expression:cond SEMICOLON for_update:update RIGHT_PAREN block:b
@@ -565,6 +663,11 @@ for_stmt ::= FOR:f LEFT_PAREN for_init:init SEMICOLON expression:cond SEMICOLON 
              {:
                  addSyntaxError(eleft, eright, "error", "Estructura inválida en for");
                  RESULT = new Fragment(Fragment.STATEMENT, "for (;;) " + b);
+             :}
+           | FOR:f LEFT_PAREN for_init:init SEMICOLON expression:cond SEMICOLON for_update:update error:e block:b
+             {:
+                 addSyntaxError(eleft, eright, "error", "Falta ')' en la estructura del for");
+                 RESULT = new Fragment(Fragment.STATEMENT, "for (" + init + "; " + cond + "; " + update + ") " + b);
              :}
            ;
 
@@ -591,6 +694,11 @@ switch_stmt ::= SWITCH:s LEFT_PAREN expression:expr RIGHT_PAREN LEFT_BRACE case_
                     addSyntaxError(eleft, eright, "error", "Expresión inválida en switch");
                     RESULT = new Fragment(Fragment.STATEMENT, "switch (0) {\n" + indent(join(c, "\n")) + "}");
                 :}
+              | SWITCH:s LEFT_PAREN expression:expr error:e LEFT_BRACE case_list:c RIGHT_BRACE
+                {:
+                    addSyntaxError(eleft, eright, "error", "Falta ')' en la expresión del switch");
+                    RESULT = new Fragment(Fragment.STATEMENT, "switch (" + expr + ") {\n" + indent(join(c, "\n")) + "}");
+                :}
               ;
 
 case_list ::= case_list:list case_clause:c
@@ -605,14 +713,29 @@ case_clause ::= CASE:c expression:e COLON statement_list:s
               {: RESULT = "case " + l + ":\n" + indent(joinFragmentsAsBody(s)); :}
               | DEFAULT:d COLON statement_list:s
               {: RESULT = "default:\n" + indent(joinFragmentsAsBody(s)); :}
+              | CASE:c error:e COLON statement_list:s
+              {:
+                    addSyntaxError(eleft, eright, "error", "Expresión inválida en case");
+                    RESULT = "case 0:\n" + indent(joinFragmentsAsBody(s));
+              :}
               ;
 
 try_stmt ::= TRY:t block:tryBlk CATCH LEFT_PAREN param:p RIGHT_PAREN block:catchBlk
            {: RESULT = new Fragment(Fragment.STATEMENT, "try " + tryBlk + " catch (" + p.toCatchCpp() + ") " + catchBlk); :}
+           | TRY:t block:tryBlk CATCH LEFT_PAREN error:e RIGHT_PAREN block:catchBlk
+           {:
+                addSyntaxError(eleft, eright, "error", "Parámetro inválido en catch");
+                RESULT = new Fragment(Fragment.STATEMENT, "try " + tryBlk + " catch (const std::exception& ex) " + catchBlk);
+           :}
            ;
 
 throw_stmt ::= THROW:t expression:e SEMICOLON
              {: RESULT = new Fragment(Fragment.STATEMENT, "throw " + e + ";"); :}
+             | THROW:t expression:e error
+             {:
+                addSyntaxError(eleft, eright, "error", "Falta ';' después de throw");
+                RESULT = new Fragment(Fragment.STATEMENT, "throw " + e + ";");
+             :}
              ;
 
 expression ::= assign_expr:e
@@ -726,6 +849,11 @@ lvalue ::= IDENTIFIER:id
 
 array_access ::= IDENTIFIER:id LEFT_BRACKET expression:index RIGHT_BRACKET
                {: RESULT = id + "[" + index + "]"; :}
+               | IDENTIFIER:id LEFT_BRACKET error:e RIGHT_BRACKET
+               {:
+                    addSyntaxError(eleft, eright, "error", "Índice inválido en acceso a arreglo");
+                    RESULT = id + "[0]";
+               :}
                ;
 
 primary ::= literal:l
@@ -754,10 +882,20 @@ primary ::= literal:l
           {: RESULT = "(" + p + "--)"; :}
           | LEFT_PAREN expression:e RIGHT_PAREN
           {: RESULT = "(" + e + ")"; :}
+          | LEFT_PAREN expression:e error
+          {:
+                addSyntaxError(eleft, eright, "error", "Falta ')' en la expresión agrupada");
+                RESULT = "(" + e + ")";
+          :}
           ;
 
 func_call ::= IDENTIFIER:id LEFT_PAREN arg_list:args RIGHT_PAREN
             {: RESULT = id + "(" + argsToCpp(args) + ")"; :}
+            | IDENTIFIER:id LEFT_PAREN error:e RIGHT_PAREN
+            {:
+                addSyntaxError(eleft, eright, "error", "Argumentos inválidos en llamada a función");
+                RESULT = id + "()";
+            :}
             ;
 
 arg_list ::= non_empty_arg_list:a

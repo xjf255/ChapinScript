@@ -1,0 +1,1 @@
+// No se generó código C++ válido por errores léxicos o sintácticos.

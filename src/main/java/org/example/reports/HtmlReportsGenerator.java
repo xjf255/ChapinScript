@@ -2,6 +2,7 @@ package org.example.reports;
 
 import org.example.lexer.LexicalError;
 import org.example.lexer.Token;
+import org.example.parser.Parser;
 import org.example.utils.FileManager;
 
 import java.io.IOException;
@@ -14,7 +15,7 @@ public class HtmlReportsGenerator {
     public static void generateErrorsReport(
             String outputPath,
             List<LexicalError> lexicalErrors,
-            List<?> syntacticErrors
+            List<Parser.SyntaxError> syntacticErrors
     ) throws IOException {
 
         StringBuilder html = new StringBuilder();
@@ -75,16 +76,20 @@ public class HtmlReportsGenerator {
                     <table>
                         <tr>
                             <th>No.</th>
+                            <th>Lexema</th>
                             <th>Descripción</th>
+                            <th>Linea</th>
+                            <th>Columna</th>                            
                         </tr>
                     """);
 
             for (int i = 0; i < syntacticErrors.size(); i++) {
                 html.append("<tr>");
                 html.append("<td>").append(i + 1).append("</td>");
-                html.append("<td>")
-                        .append(escape(String.valueOf(syntacticErrors.get(i))))
-                        .append("</td>");
+                html.append("<td>").append(escape(String.valueOf(syntacticErrors.get(i).getLexeme()))).append("</td>");
+                html.append("<td>").append(escape(String.valueOf(syntacticErrors.get(i).getMessage()))).append("</td>");
+                html.append("<td>").append(escape(String.valueOf(syntacticErrors.get(i).getLine()))).append("</td>");
+                html.append("<td>").append(escape(String.valueOf(syntacticErrors.get(i).getColumn()))).append("</td>");
                 html.append("</tr>\n");
             }
 
@@ -112,13 +117,19 @@ public class HtmlReportsGenerator {
                     <tr>
                         <th>No.</th>
                         <th>Token</th>
+                        <th>Tipo</th>
+                        <th>Fila</th>
+                        <th>Columna</th>
                     </tr>
                 """);
 
         for (int i = 0; i < tokens.size(); i++) {
             html.append("<tr>");
             html.append("<td>").append(i + 1).append("</td>");
-            html.append("<td>").append(escape(tokens.get(i).toString())).append("</td>");
+            html.append("<td>").append(escape(tokens.get(i).getLexeme())).append("</td>");
+            html.append("<td>").append(escape(tokens.get(i).getType().toString())).append("</td>");
+            html.append("<td>").append(escape(String.valueOf(tokens.get(i).getLine()))).append("</td>");
+            html.append("<td>").append(escape(String.valueOf(tokens.get(i).getColumn()))).append("</td>");
             html.append("</tr>\n");
         }
 

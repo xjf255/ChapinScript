@@ -1,119 +1,119 @@
-banda ContadorChapin {
+banda ContadorChapin ALMA
 
-    barrio cabal LIMITE = 5;
-    chisme nombre;
-    chisme nombres[5];
-    cabal total;
-    pisto promedio;
-    pistazo ahorro;
-    cachito inicial;
-    casaca activo;
+    barrio cabal LIMITE DAR 5 FRENO
+    chisme nombre FRENO
+    chisme nombres CAJON 5 TAPA FRENO @
+    cabal total FRENO
+    pisto promedio FRENO
+    pistazo ahorro FRENO
+    cachito inicial FRENO
+    casaca activo FRENO
+@
+    ContadorChapin ABRAZO chisme nom SEMILLA cabal t SEMILLA pisto p SEMILLA pistazo a SEMILLA cachito i SEMILLA casaca estado RESPANDO
+        vos ATOMO nombre DAR nom FRENO
+        vos ATOMO total DAR t FRENO
+        vos ATOMO promedio DAR p FRENO
+        vos ATOMO ahorro DAR a FRENO
+        vos ATOMO inicial DAR i FRENO
+        vos ATOMO activo DAR estado FRENO
 
-    ContadorChapin(chisme nom, cabal t, pisto p, pistazo a, cachito i, casaca estado) {
-        vos.nombre = nom;
-        vos.total = t;
-        vos.promedio = p;
-        vos.ahorro = a;
-        vos.inicial = i;
-        vos.activo = estado;
-    }
 
-    nimais mostrarEstado() {
-        chotear("==== ESTADO DEL CONTADOR ====");
-        chotear("Nombre: " + vos.nombre);
-        chotear("Total: " + vos.total);
-        chotear("Promedio: " + vos.promedio);
-        chotear("Ahorro: " + vos.ahorro);
-        chotear("Inicial: " + vos.inicial);
+    nimais mostrarEstado ABRAZO RESPANDO ALMA
+        chotear ABRAZO "==== ESTADO DEL CONTADOR ====" RESPANDO FRENO
+        chotear ABRAZO "Nombre: " CRUZ vos ATOMO nombre RESPANDO FRENO
+        chotear ABRAZO "Total: " CRUZ vos ATOMO total RESPANDO FRENO
+        chotear ABRAZO "Promedio: " CRUZ vos ATOMO promedio RESPANDO FRENO
+        chotear ABRAZO "Ahorro: " CRUZ vos ATOMO ahorro RESPANDO FRENO
+        chotear ABRAZO "Inicial: " CRUZ vos ATOMO inicial RESPANDO FRENO
 
-        simon (vos.activo == deplano) {
-            chotear("Estado: activo");
-        } chapus {
-            chotear("Estado: inactivo");
-        }
-    }
+        simon ABRAZO vos ATOMO activo GEMELOS deplano RESPANDO ALMA
+            chotear ABRAZO "Estado: activo" RESPANDO FRENO
+        CUERPO chapus ALMA
+            chotear ABRAZO "Estado: inactivo" RESPANDO FRENO
+        CUERPO
+    CUERPO
 
-    cabal procesar(cabal numero) {
-        cabal suma = 0;
+    cabal procesar ABRAZO cabal numero RESPANDO ALMA
+        cabal suma DAR 0 FRENO
 
-        vuelta (cabal i = 0; i < numero; i = i + 1) {
-            simon (i == 2) {
-                chanin;
-            }
+        vuelta ABRAZO cabal i DAR 0 FRENO i PICO numero FRENO i DAR i CRUZ 1 RESPANDO ALMA
+            simon ABRAZO i GEMELOS 2 RESPANDO ALMA
+                chanin FRENO
+            CUERPO
 
-            simon (i > 10) {
-                cuaje;
-            }
+            simon ABRAZO i BOCA 10 RESPANDO ALMA
+                cuaje FRENO
+            CUERPO
 
-            suma = suma + i;
-        }
+            suma DAR suma CRUZ i FRENO
+        CUERPO
 
-        seguile (suma < 20) {
-            suma = suma + 2;
-        }
+        seguile ABRAZO suma PICO 20 RESPANDO ALMA
+            suma DAR suma CRUZ 2 FRENO
+        CUERPO
 
-        dale {
-            suma = suma - 1;
-        } seguile (suma > 15);
+        dale ALMA
+            suma DAR suma RAYA 1 FRENO
+        CUERPO seguile ABRAZO suma BOCA 15 RESPANDO FRENO
 
-        chiripa (numero) {
-            wasa 1:
-                chotear("Caso 1");
-                cuaje;
+        chiripa ABRAZO numero RESPANDO ALMA
+            wasa 1 OJOS
+                chotear ABRAZO "Caso 1" RESPANDO FRENO
+                cuaje FRENO
 
-            wasa 2:
-                chotear("Caso 2");
-                cuaje;
+            wasa 2 OJOS
+                chotear ABRAZO "Caso 2" RESPANDO FRENO
+                cuaje FRENO
 
-            wasa 3:
-                chotear("Caso 3");
-                cuaje;
+            wasa 3 OJOS
+                chotear ABRAZO "Caso 3" RESPANDO FRENO
+                cuaje FRENO
 
-            porsiacaso:
-                chotear("Caso no contemplado");
-                cuaje;
-        }
+            porsiacaso OJOS
+                chotear ABRAZO "Caso no contemplado" RESPANDO FRENO
+                cuaje FRENO
+        CUERPO
 
-        vonos suma;
-    }
+        vonos suma FRENO
+    CUERPO
 
-    caquero nimais validar(cabal edad) {
-        simon (edad < 0) {
-            morongazo "La edad no puede ser negativa";
-        }
+    caquero nimais validar ABRAZO cabal edad RESPANDO ALMA
+        simon ABRAZO edad PICO 0 RESPANDO ALMA
+            morongazo "La edad no puede ser negativa" FRENO
+        CUERPO
 
-        simon (edad == 0) {
-            morongazo "La edad no puede ser cero";
-        }
-    }
-}
+        simon ABRAZO edad GEMELOS 0 RESPANDO ALMA
+            morongazo "La edad no puede ser cero" FRENO
+        CUERPO
+    CUERPO
+CUERPO
 
-nimais main() {
-    contador.mostrarEstado();
+nimais main ABRAZO RESPANDO ALMA
+    contador ATOMO mostrarEstado ABRAZO RESPANDO FRENO
 
-    calale {
-        contador.validar(5);
+    calale ALMA
+        contador ATOMO validar ABRAZO 5 RESPANDO FRENO
 
-        cabal resultado = contador.procesar(7);
-        chotear("Resultado final: " + resultado);
+        cabal resultado DAR contador ATOMO procesar ABRAZO 7 RESPANDO FRENO
+        chotear ABRAZO "Resultado final: " CRUZ resultado RESPANDO FRENO
 
-        casaca bandera = nel;
+        casaca bandera DAR nel FRENO
 
-        simon (resultado > 10) {
-            bandera = deplano;
-        } chapus {
-            bandera = nel;
-        }
+        simon ABRAZO resultado BOCA 10 RESPANDO ALMA
+            bandera DAR deplano FRENO
+        CUERPO chapus ALMA
+            bandera DAR nel FRENO
+        CUERPO
 
-        simon (bandera == deplano) {
-            chotear("La bandera quedó en verdadero");
-        } chapus {
-            chotear("La bandera quedó en falso");
-        }
+        simon ABRAZO bandera GEMELOS deplano RESPANDO ALMA
+            chotear ABRAZO "La bandera quedó en verdadero" RESPANDO FRENO
+        CUERPO chapus ALMA
+            chotear ABRAZO "La bandera quedó en falso" RESPANDO FRENO
+        CUERPO
 
-    } atrapalo (chisme error) {
-        chotear("Se atrapó un error: " + error);
-    }
+    CUERPO atrapalo ABRAZO chisme error RESPANDO ALMA
+        chotear ABRAZO "Se atrapó un error: " CRUZ error RESPANDO FRENO
+    CUERPO
 
-    chotear("Programa finalizado");
-}
+    chotear ABRAZO "Programa finalizado" RESPANDO FRENO
+CUERPO

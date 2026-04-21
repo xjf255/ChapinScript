@@ -60,6 +60,7 @@ public enum TokenType {
     /* Operadores aritméticos */
     PLUS,               // CRUZ
     MINUS,              // RAYA
+    UMINUS,
     MULTIPLY,           // ESTRELLA
     DIVIDE,             // RAMPA
     MOD,                // SOBRA
