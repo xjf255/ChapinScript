@@ -3,6 +3,7 @@ package org.example.reports;
 import org.example.lexer.LexicalError;
 import org.example.lexer.Token;
 import org.example.parser.Parser;
+import org.example.semantic.SymbolInfo;
 import org.example.utils.FileManager;
 
 import java.io.IOException;
@@ -184,7 +185,7 @@ public class HtmlReportsGenerator {
                 html.append("<td>").append(i + 1).append("</td>");
                 html.append("<td>").append(escape(s.getName())).append("</td>");
                 html.append("<td>").append(escape(s.getCategory())).append("</td>");
-                html.append("<td>").append(escape(s.getDataType())).append("</td>");
+                html.append("<td>").append(escape(s.getDataType().toString())).append("</td>");
                 html.append("<td>").append(escape(s.getScope())).append("</td>");
                 html.append("<td>").append(s.getLine()).append("</td>");
                 html.append("<td>").append(s.getColumn()).append("</td>");
