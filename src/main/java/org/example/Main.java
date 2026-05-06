@@ -19,11 +19,12 @@ import java.util.stream.Collectors;
 public class Main {
 
     private static final String DEFAULT_INPUT = "examples/valid/index.chs";
+    private static final String DEFAULT_ERROR_INPUT = "examples/invalid/errores_sintacticos_01.chs";
     private static final String OUTPUT_DIR = "output";
 
     public static void main(String[] args) {
         try {
-            String inputPath = args.length > 0 ? args[0] : DEFAULT_INPUT;
+            String inputPath = args.length > 0 ? args[0] : DEFAULT_ERROR_INPUT;
             String source = FileManager.readFile(inputPath);
 
             Lexer tokenLexer = new Lexer(new StringReader(source));

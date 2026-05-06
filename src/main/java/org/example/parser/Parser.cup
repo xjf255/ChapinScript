@@ -13,11 +13,11 @@ parser code {:
         public final String lexeme;
 
         public SyntaxError(String type, String message, int line, int column, String lexeme) {
-            this.type = type;
+            this.type    = type;
             this.message = message;
-            this.line = line;
-            this.column = column;
-            this.lexeme = lexeme;
+            this.line    = line;
+            this.column  = column;
+            this.lexeme  = lexeme;
         }
 
         @Override
@@ -31,11 +31,12 @@ parser code {:
 
     public static class Fragment {
         public static final int STATEMENT = 1;
-        public static final int GLOBAL = 2;
-        public static final int FUNCTION = 3;
-        public static final int CLASS = 4;
+        public static final int GLOBAL    = 2;
+        public static final int FUNCTION  = 3;
+        public static final int CLASS     = 4;
+        public static final int LOCAL     = 5;
 
-        public final int kind;
+        public final int    kind;
         public final String code;
 
         public Fragment(int kind, String code) {
@@ -50,15 +51,13 @@ parser code {:
         public final String defaultValue;
 
         public ParamInfo(String type, String name, String defaultValue) {
-            this.type = type;
-            this.name = name;
+            this.type         = type;
+            this.name         = name;
             this.defaultValue = defaultValue;
         }
 
         public String toCpp() {
-            if (defaultValue == null) {
-                return type + " " + name;
-            }
+            if (defaultValue == null) return type + " " + name;
             return type + " " + name + " = " + defaultValue;
         }
 
@@ -67,93 +66,149 @@ parser code {:
         }
     }
 
+    // ── Estado de contexto ────────────────────────────────────────────────
+    /** Profundidad de bloque: 0 = ámbito global, >0 = dentro de función/método */
+    private int blockDepth = 0;
+
+    public void enterBlock() { blockDepth++; }
+    public void exitBlock()  { if (blockDepth > 0) blockDepth--; }
+    public boolean isLocalScope() { return blockDepth > 0; }
+
+    // ── Control de recuperación ───────────────────────────────────────────
+    /**
+     * Cuando CUP entra en modo pánico y luego se recupera mediante una
+     * producción con 'error', llama a syntax_error() Y después ejecuta
+     * la acción de la producción (que también llama addSyntaxError).
+     * Esto genera duplicados. La bandera justRecovered bloquea el segundo
+     * llamado automático de syntax_error() que ocurre POST-recuperación.
+     *
+     * Flujo sin bandera:
+     *   syntax_error()  → registra "Símbolo inesperado"   (1)
+     *   acción error    → registra "Falta ';' después de X" (2)  ← duplicado
+     *
+     * Flujo con bandera:
+     *   syntax_error()  → registra "Símbolo inesperado", activa bandera (1)
+     *   acción error    → registra "Falta ';' después de X"           (2) ✓
+     *   syntax_error()  → bandera activa → descarta, limpia bandera    (skip)
+     */
+    private boolean justRecovered = false;
+
+    /**
+     * Posición del token que disparó el error original, guardada ANTES
+     * de que CUP descarte tokens durante la recuperación de pánico.
+     * Permite reportar la posición real del error en vez de la del token
+     * de sincronización (que puede estar varias líneas después).
+     */
+    private int errorLine   = -1;
+    private int errorColumn = -1;
+    private String errorLexeme = null;
+
+    // ── Errores sintácticos ───────────────────────────────────────────────
     private final List<SyntaxError> syntaxErrors = new ArrayList<>();
 
-    public List<SyntaxError> getSyntaxErrors() {
-        return syntaxErrors;
-    }
+    public List<SyntaxError> getSyntaxErrors() { return syntaxErrors; }
+
+    /**
+     * Normaliza line/column negativos (que CUP produce cuando no tiene
+     * información de posición) a 1,1 para que el reporte no muestre L0/C0.
+     */
+    private int normalizeLine(int line)     { return line   < 1 ? 1 : line; }
+    private int normalizeColumn(int column) { return column < 1 ? 1 : column; }
 
     private void addSyntaxError(Symbol token, String message) {
         String lexeme = "EOF";
-        int line = -1;
-        int column = -1;
+        int line, column;
 
         if (token != null) {
-            if (token.value != null) {
+            if (token.value != null && !token.value.toString().isBlank()) {
                 lexeme = token.value.toString();
             } else if (token.sym == sym.EOF) {
                 lexeme = "EOF";
             }
-            line = token.left;
-            column = token.right;
+            line   = normalizeLine(token.left);
+            column = normalizeColumn(token.right);
+        } else {
+            line   = 1;
+            column = 1;
         }
 
         addSyntaxError(line, column, lexeme, message);
     }
 
     private void addSyntaxError(int line, int column, String lexeme, String message) {
-        if (lexeme == null || lexeme.isBlank()) {
-            lexeme = "desconocido";
-        }
+        line   = normalizeLine(line);
+        column = normalizeColumn(column);
 
+        if (lexeme == null || lexeme.isBlank()) lexeme = "desconocido";
+
+        // Deduplicación: evitar el mismo error exacto consecutivo.
         if (!syntaxErrors.isEmpty()) {
             SyntaxError last = syntaxErrors.get(syntaxErrors.size() - 1);
-            if (last.line == line &&
-                last.column == column &&
-                last.lexeme.equals(lexeme) &&
-                last.message.equals(message)) {
+            if (last.line == line && last.message.equals(message)) {
                 return;
             }
         }
 
-        syntaxErrors.add(new SyntaxError(
-            "Sintáctico",
-            message,
-            line,
-            column,
-            lexeme
-        ));
+        syntaxErrors.add(new SyntaxError("Sintáctico", message, line, column, lexeme));
+    }
+
+    /**
+     * FIX: extraído en método propio para reutilizarse tanto en el camino
+     * normal como en el camino justRecovered. Así nunca se pierde la
+     * posición de un error real cuando hay errores encadenados.
+     */
+    private void saveErrorPosition(Symbol cur_token) {
+        if (cur_token != null) {
+            errorLine   = normalizeLine(cur_token.left);
+            errorColumn = normalizeColumn(cur_token.right);
+            errorLexeme = (cur_token.value != null)
+                          ? cur_token.value.toString()
+                          : (cur_token.sym == sym.EOF ? "EOF" : "desconocido");
+        } else {
+            errorLine   = 1;
+            errorColumn = 1;
+            errorLexeme = "desconocido";
+        }
     }
 
     @Override
     public void syntax_error(Symbol cur_token) {
-        String message = "Símbolo inesperado";
+        // FIX: si acabamos de recuperarnos, limpiamos la bandera pero
+        // GUARDAMOS la posición del nuevo token para que el próximo
+        // recoverError() la use correctamente (errores encadenados).
+        if (justRecovered) {
+            justRecovered = false;
+            saveErrorPosition(cur_token);
+            return;
+        }
 
+        // Guardar la posición del token que causó el error AHORA, antes de
+        // que CUP empiece a descartar tokens durante la recuperación de pánico.
+        saveErrorPosition(cur_token);
+
+        String message = "Símbolo inesperado";
         if (cur_token != null) {
             switch (cur_token.sym) {
-                case sym.SEMICOLON:
-                    message = "Punto y coma inesperado";
-                    break;
-                case sym.RIGHT_BRACE:
-                    message = "Llave de cierre inesperada";
-                    break;
-                case sym.RIGHT_PAREN:
-                    message = "Paréntesis de cierre inesperado";
-                    break;
-                case sym.ELSE:
-                    message = "ELSE sin IF válido previo";
-                    break;
-                case sym.CASE:
-                    message = "CASE fuera de un SWITCH válido";
-                    break;
-                case sym.DEFAULT:
-                    message = "DEFAULT fuera de un SWITCH válido";
-                    break;
-                case sym.EOF:
-                    message = "Fin de archivo inesperado";
-                    break;
-                default:
-                    message = "Símbolo inesperado";
-                    break;
+                case sym.SEMICOLON:   message = "Punto y coma inesperado";          break;
+                case sym.RIGHT_BRACE: message = "Llave de cierre inesperada";       break;
+                case sym.RIGHT_PAREN: message = "Paréntesis de cierre inesperado";  break;
+                case sym.ELSE:        message = "ELSE sin IF válido previo";         break;
+                case sym.CASE:        message = "CASE fuera de un SWITCH válido";    break;
+                case sym.DEFAULT:     message = "DEFAULT fuera de un SWITCH válido"; break;
+                case sym.EOF:         message = "Fin de archivo inesperado";         break;
+                default:              message = "Símbolo inesperado";                break;
             }
         }
 
-        addSyntaxError(cur_token, message);
+        addSyntaxError(errorLine, errorColumn, errorLexeme, message);
     }
 
     @Override
     public void unrecovered_syntax_error(Symbol cur_token) throws Exception {
-        addSyntaxError(cur_token, "Error sintáctico no recuperable");
+        String lex  = (errorLexeme != null) ? errorLexeme : "EOF";
+        int    line = (errorLine   > 0)     ? errorLine   : normalizeLine(cur_token != null ? cur_token.left  : 1);
+        int    col  = (errorColumn > 0)     ? errorColumn : normalizeColumn(cur_token != null ? cur_token.right : 1);
+        addSyntaxError(line, col, lex, "Error sintáctico no recuperable");
         throw new Exception("Error sintáctico no recuperable");
     }
 
@@ -162,7 +217,7 @@ parser code {:
         if (info instanceof Symbol) {
             addSyntaxError((Symbol) info, message);
         } else {
-            addSyntaxError(-1, -1, "desconocido", message);
+            addSyntaxError(1, 1, "desconocido", message);
         }
     }
 
@@ -172,6 +227,32 @@ parser code {:
         throw new Exception(message);
     }
 
+    /**
+     * Llamar desde las acciones de las producciones 'error' del grammar.
+     *
+     * Usa la posición guardada en errorLine/errorColumn (posición real del
+     * error original) en lugar de eleft/eright (posición del token de
+     * sincronización, que puede estar lejos).
+     * Activa justRecovered para que el siguiente syntax_error() automático
+     * de CUP sea descartado (pero la posición ya queda guardada gracias al
+     * FIX en syntax_error).
+     */
+    private void recoverError(String message) {
+        int    line   = (errorLine   > 0) ? errorLine   : 1;
+        int    column = (errorColumn > 0) ? errorColumn : 1;
+        String lexeme = (errorLexeme != null && !errorLexeme.isBlank())
+                        ? errorLexeme : "desconocido";
+
+        addSyntaxError(line, column, lexeme, message);
+
+        justRecovered = true;
+
+        errorLine   = -1;
+        errorColumn = -1;
+        errorLexeme = null;
+    }
+
+    // ── Utilidades de generación C++ ──────────────────────────────────────
     private String cppType(String t) {
         if (t == null) return "";
         if ("string".equals(t)) return "std::string";
@@ -192,11 +273,8 @@ parser code {:
         String[] lines = text.split("\\R", -1);
         StringBuilder sb = new StringBuilder();
         for (String line : lines) {
-            if (line.isBlank()) {
-                sb.append("\n");
-            } else {
-                sb.append("    ").append(line).append("\n");
-            }
+            if (line.isBlank()) sb.append("\n");
+            else                sb.append("    ").append(line).append("\n");
         }
         return sb.toString();
     }
@@ -207,9 +285,7 @@ parser code {:
             Fragment f = (Fragment) obj;
             if (f != null && f.code != null && !f.code.isBlank()) {
                 sb.append(f.code);
-                if (!f.code.endsWith("\n")) {
-                    sb.append("\n");
-                }
+                if (!f.code.endsWith("\n")) sb.append("\n");
             }
         }
         return sb.toString();
@@ -219,38 +295,27 @@ parser code {:
         StringBuilder sb = new StringBuilder();
         for (Object obj : list) {
             String code = (String) obj;
-            if (code != null && !code.isBlank()) {
-                sb.append(indent(code));
-            }
+            if (code != null && !code.isBlank()) sb.append(indent(code));
         }
         return sb.toString();
     }
 
     private String buildProgram(List list) {
-        StringBuilder globals = new StringBuilder();
+        StringBuilder globals   = new StringBuilder();
         StringBuilder functions = new StringBuilder();
-        StringBuilder classes = new StringBuilder();
-        StringBuilder mainBody = new StringBuilder();
+        StringBuilder classes   = new StringBuilder();
+        StringBuilder mainBody  = new StringBuilder();
 
         for (Object obj : list) {
             Fragment f = (Fragment) obj;
             if (f == null || f.code == null || f.code.isBlank()) continue;
-
             switch (f.kind) {
-                case Fragment.CLASS:
-                    classes.append(f.code).append("\n\n");
-                    break;
-                case Fragment.FUNCTION:
-                    functions.append(f.code).append("\n\n");
-                    break;
-                case Fragment.GLOBAL:
-                    globals.append(f.code).append("\n");
-                    break;
+                case Fragment.CLASS:    classes.append(f.code).append("\n\n");   break;
+                case Fragment.FUNCTION: functions.append(f.code).append("\n\n"); break;
+                case Fragment.GLOBAL:   globals.append(f.code).append("\n");     break;
                 default:
                     mainBody.append(f.code);
-                    if (!f.code.endsWith("\n")) {
-                        mainBody.append("\n");
-                    }
+                    if (!f.code.endsWith("\n")) mainBody.append("\n");
                     break;
             }
         }
@@ -261,15 +326,9 @@ parser code {:
         out.append("#include <stdexcept>\n\n");
         out.append("using namespace std;\n\n");
 
-        if (globals.length() > 0) {
-            out.append(globals).append("\n");
-        }
-        if (classes.length() > 0) {
-            out.append(classes);
-        }
-        if (functions.length() > 0) {
-            out.append(functions);
-        }
+        if (globals.length()   > 0) out.append(globals).append("\n");
+        if (classes.length()   > 0) out.append(classes);
+        if (functions.length() > 0) out.append(functions);
 
         out.append("int main() {\n");
         out.append(indent(mainBody.toString()));
@@ -288,46 +347,42 @@ parser code {:
         return join(parts, ", ");
     }
 
-    private String argsToCpp(List list) {
-        return join(list, ", ");
-    }
+    private String argsToCpp(List list) { return join(list, ", "); }
 
-    private String buildVarDecl(String acc, String type, String id, String expr, boolean isConst) {
+    /**
+     * Construye una declaración de variable.
+     * El Fragment resultante es LOCAL si estamos dentro de un bloque,
+     * GLOBAL en otro caso.
+     */
+    private Fragment buildVarDecl(String acc, String type, String id, String expr, boolean isConst) {
         String base = (isConst ? "const " : "") + cppType(type) + " " + id;
         if (expr != null) base += " = " + expr;
         base += ";";
 
-        if (acc != null) {
-            return acc + ":\n" + base;
-        }
-        return base;
+        String code = (acc != null) ? acc + ":\n" + base : base;
+        int kind = isLocalScope() ? Fragment.LOCAL : Fragment.GLOBAL;
+        return new Fragment(kind == Fragment.LOCAL ? Fragment.STATEMENT : Fragment.GLOBAL, code);
     }
 
-    private String buildArrayDecl(String acc, String type, String id, Integer size, List vals) {
+    private Fragment buildArrayDecl(String acc, String type, String id, Integer size, List vals) {
         StringBuilder sb = new StringBuilder();
-        sb.append(cppType(type)).append(" ").append(id).append("[").append(size).append("]");
-        if (vals != null && !vals.isEmpty()) {
+        sb.append(cppType(type)).append(" ").append(id)
+          .append("[").append(size).append("]");
+        if (vals != null && !vals.isEmpty())
             sb.append(" = { ").append(join(vals, ", ")).append(" }");
-        }
         sb.append(";");
 
-        if (acc != null) {
-            return acc + ":\n" + sb.toString();
-        }
-        return sb.toString();
+        String code = (acc != null) ? acc + ":\n" + sb.toString() : sb.toString();
+        int kind = isLocalScope() ? Fragment.STATEMENT : Fragment.GLOBAL;
+        return new Fragment(kind, code);
     }
 
     private String buildFunction(String acc, String retType, String id, List params, String block) {
         StringBuilder sb = new StringBuilder();
-        if (acc != null) {
-            sb.append(acc).append(":\n");
-        }
+        if (acc != null) sb.append(acc).append(":\n");
         sb.append(cppType(retType))
-          .append(" ")
-          .append(id)
-          .append("(")
-          .append(paramsToCpp(params))
-          .append(") ")
+          .append(" ").append(id)
+          .append("(").append(paramsToCpp(params)).append(") ")
           .append(block);
         return sb.toString();
     }
@@ -337,6 +392,7 @@ parser code {:
     }
 :};
 
+/* ── Terminales ──────────────────────────────────────────────────────── */
 terminal PRINT, IF, ELSE, SWITCH, CASE, DEFAULT, FOR, WHILE, DO, BREAK;
 terminal CONTINUE, RETURN, INT, FLOAT, DOUBLE, CHAR, BOOL, VOID, STRING, CONST, CLASS, THIS, TRY, CATCH;
 terminal THROW, PUBLIC, PRIVATE, TRUE, FALSE, NULL, NEW;
@@ -346,40 +402,45 @@ terminal PLUS, MINUS, MULTIPLY, DIVIDE, MOD, NOT;
 terminal PLUS_ASSIGN, MINUS_ASSIGN, MULTIPLY_ASSIGN, DIVIDE_ASSIGN, MOD_ASSIGN;
 terminal INCREMENT, DECREMENT, UMINUS;
 
-terminal String IDENTIFIER;
-terminal String STRING_LITERAL;
+terminal String  IDENTIFIER;
+terminal String  STRING_LITERAL;
+terminal String  CHAR_LITERAL;
 terminal Integer INTEGER_LITERAL;
-terminal Double DECIMAL_LITERAL;
+terminal Double  DECIMAL_LITERAL;
 
-non terminal String program;
-non terminal List statement_list;
+/* ── No terminales ───────────────────────────────────────────────────── */
+non terminal String   program;
+non terminal List     statement_list;
 non terminal Fragment statement;
-non terminal String block;
+non terminal String   block;
+non terminal          block_open;
 
 non terminal Fragment decl;
 non terminal Fragment decl_class;
-non terminal String decl_constructors;
-non terminal String new_expr;
-non terminal String class_member;
-non terminal List class_member_list;
-non terminal String access_modifier;
-non terminal List param_list;
-non terminal List non_empty_param_list;
+non terminal String   decl_constructors;
+non terminal String   new_expr;
+non terminal String   class_member;
+non terminal List     class_member_list;
+non terminal String   access_modifier;
+non terminal List     param_list;
+non terminal List     non_empty_param_list;
 non terminal ParamInfo param;
-non terminal String type;
-non terminal List array_values;
+non terminal String   type;
+non terminal List     array_values;
 
 non terminal Fragment if_stmt;
 non terminal Fragment while_stmt;
 non terminal Fragment for_stmt;
-non terminal String for_init;
-non terminal String for_update;
+non terminal String   for_init;
+non terminal String   for_update;
 non terminal Fragment do_while_stmt;
 non terminal Fragment try_stmt;
+non terminal List     catch_list;
+non terminal String   catch_clause;
 non terminal Fragment throw_stmt;
 non terminal Fragment switch_stmt;
-non terminal List case_list;
-non terminal String case_clause;
+non terminal List     case_list;
+non terminal String   case_clause;
 
 non terminal String expression;
 non terminal String assign_expr;
@@ -394,25 +455,33 @@ non terminal String unary_expr;
 non terminal String primary;
 non terminal String literal;
 non terminal String func_call;
-non terminal List arg_list;
-non terminal List non_empty_arg_list;
+non terminal List   arg_list;
+non terminal List   non_empty_arg_list;
 non terminal String lvalue;
+/* FIX: eliminada la declaración huérfana de field_access — no tenía
+   ninguna producción asociada y causaba un warning de símbolo
+   no productivo en CUP. El acceso a campo vive en primary. */
 non terminal String array_access;
 
+/* ── Precedencias ────────────────────────────────────────────────────── */
 precedence right ASSIGN, PLUS_ASSIGN, MINUS_ASSIGN, MULTIPLY_ASSIGN, DIVIDE_ASSIGN, MOD_ASSIGN;
 precedence right QUESTION, COLON;
-precedence left OR;
-precedence left AND;
-precedence left EQUALS, NOT_EQUALS;
-precedence left LESS_THAN, GREATER_THAN, LESS_EQUAL, GREATER_EQUAL;
-precedence left PLUS, MINUS;
-precedence left MULTIPLY, DIVIDE, MOD;
+precedence left  OR;
+precedence left  AND;
+precedence left  EQUALS, NOT_EQUALS;
+precedence left  LESS_THAN, GREATER_THAN, LESS_EQUAL, GREATER_EQUAL;
+precedence left  PLUS, MINUS;
+precedence left  MULTIPLY, DIVIDE, MOD;
 precedence right NOT;
 precedence right UMINUS;
-precedence left DOT;
-precedence left INCREMENT, DECREMENT;
+precedence left  DOT;
+precedence left  INCREMENT, DECREMENT;
 
 start with program;
+
+/* ════════════════════════════════════════════════════════════════════════
+   PROGRAMA
+   ════════════════════════════════════════════════════════════════════════ */
 
 program ::= statement_list:s
           {: RESULT = buildProgram(s); :}
@@ -423,6 +492,10 @@ statement_list ::= statement_list:list statement:s
                  | /* empty */
                  {: RESULT = new ArrayList(); :}
                  ;
+
+/* ════════════════════════════════════════════════════════════════════════
+   SENTENCIAS
+   ════════════════════════════════════════════════════════════════════════ */
 
 statement ::= decl:d
             {: RESULT = d; :}
@@ -442,104 +515,136 @@ statement ::= decl:d
             {: RESULT = t; :}
             | throw_stmt:t
             {: RESULT = t; :}
-            | RETURN:r expression:e SEMICOLON
+            | RETURN expression:e SEMICOLON
             {: RESULT = new Fragment(Fragment.STATEMENT, "return " + e + ";"); :}
-            | RETURN:r SEMICOLON
+            | RETURN SEMICOLON
             {: RESULT = new Fragment(Fragment.STATEMENT, "return;"); :}
-            | RETURN:r expression:e error
+            | RETURN expression:e error
             {:
-                addSyntaxError(eleft, eright, "error", "Falta ';' después de return");
+                recoverError("Falta ';' después de return");
                 RESULT = new Fragment(Fragment.STATEMENT, "return " + e + ";");
             :}
-            | BREAK:b SEMICOLON
+            | BREAK SEMICOLON
             {: RESULT = new Fragment(Fragment.STATEMENT, "break;"); :}
-            | BREAK:b error
+            | BREAK error
             {:
-                addSyntaxError(eleft, eright, "error", "Falta ';' después de break");
+                recoverError("Falta ';' después de break");
                 RESULT = new Fragment(Fragment.STATEMENT, "break;");
             :}
-            | CONTINUE:c SEMICOLON
+            | CONTINUE SEMICOLON
             {: RESULT = new Fragment(Fragment.STATEMENT, "continue;"); :}
-            | CONTINUE:c error
+            | CONTINUE error
             {:
-                addSyntaxError(eleft, eright, "error", "Falta ';' después de continue");
+                recoverError("Falta ';' después de continue");
                 RESULT = new Fragment(Fragment.STATEMENT, "continue;");
             :}
-            | PRINT:p LEFT_PAREN expression:e RIGHT_PAREN SEMICOLON
+            | PRINT LEFT_PAREN expression:e RIGHT_PAREN SEMICOLON
             {: RESULT = new Fragment(Fragment.STATEMENT, "std::cout << " + e + " << std::endl;"); :}
-            | PRINT:p LEFT_PAREN expression:e RIGHT_PAREN error
+            | PRINT LEFT_PAREN expression:e RIGHT_PAREN error
             {:
-                addSyntaxError(eleft, eright, "error", "Falta ';' después de print");
+                recoverError("Falta ';' después de print");
                 RESULT = new Fragment(Fragment.STATEMENT, "std::cout << " + e + " << std::endl;");
             :}
-            | PRINT:p LEFT_PAREN error:e RIGHT_PAREN SEMICOLON
+            | PRINT LEFT_PAREN error RIGHT_PAREN SEMICOLON
             {:
-                addSyntaxError(eleft, eright, "error", "Expresión inválida en print");
+                recoverError("Expresión inválida en print");
                 RESULT = new Fragment(Fragment.STATEMENT, "std::cout << \"\" << std::endl;");
             :}
             | expression:e SEMICOLON
             {: RESULT = new Fragment(Fragment.STATEMENT, e + ";"); :}
             | expression:e error
             {:
-                addSyntaxError(eleft, eright, "error", "Falta ';' al final de la expresión");
+                recoverError("Falta ';' al final de la expresión");
                 RESULT = new Fragment(Fragment.STATEMENT, e + ";");
             :}
-            | error:e SEMICOLON
-              {:
-                  addSyntaxError(eleft, eright, "error", "Sentencia inválida");
-                  RESULT = new Fragment(Fragment.STATEMENT, "// sentencia inválida");
-              :}
+            | error SEMICOLON
+            {:
+                recoverError("Sentencia inválida");
+                RESULT = new Fragment(Fragment.STATEMENT, "// sentencia inválida");
+            :}
             ;
 
-block ::= LEFT_BRACE:l statement_list:s RIGHT_BRACE
-        {: RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}"; :}
-        | LEFT_BRACE:l statement_list:s error:e
-        {:
-            addSyntaxError(eleft, eright, "EOF", "Falta llave de cierre '}' para el bloque");
-            RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}";
-        :}
+/* ════════════════════════════════════════════════════════════════════════
+   BLOQUE  —  actualiza blockDepth para distinguir ámbito local/global
+   ════════════════════════════════════════════════════════════════════════ */
+
+/*
+ * block_open: no-terminal auxiliar vacío que consume LEFT_BRACE
+ * y ejecuta enterBlock() UNA SOLA VEZ, compartido por ambas
+ * producciones de block.
+ * Esto elimina el conflicto reduce/reduce que causaban las
+ * acciones intermedias anónimas NT$0 / NT$1 de CUP.
+ */
+block_open ::= LEFT_BRACE
+             {: enterBlock(); :}
+             ;
+
+block ::= block_open statement_list:s RIGHT_BRACE
+          {:
+              exitBlock();
+              RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}";
+          :}
+        | block_open statement_list:s error:e
+          {:
+              exitBlock();
+              recoverError("Falta llave de cierre '}' para el bloque");
+              RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}";
+          :}
         ;
 
-access_modifier ::= PUBLIC
-                  {: RESULT = "public"; :}
-                  | PRIVATE
-                  {: RESULT = "private"; :}
+/* ════════════════════════════════════════════════════════════════════════
+   MODIFICADORES DE ACCESO
+   ════════════════════════════════════════════════════════════════════════ */
+
+access_modifier ::= PUBLIC  {: RESULT = "public"; :}
+                  | PRIVATE {: RESULT = "private"; :}
                   ;
 
+/* ════════════════════════════════════════════════════════════════════════
+   DECLARACIONES
+   ════════════════════════════════════════════════════════════════════════ */
+
 decl ::= access_modifier:acc type:t IDENTIFIER:id SEMICOLON
-       {: RESULT = new Fragment(Fragment.GLOBAL, buildVarDecl(acc, t, id, null, false)); :}
+       {: RESULT = buildVarDecl(acc, t, id, null, false); :}
        | access_modifier:acc type:t IDENTIFIER:id ASSIGN expression:e SEMICOLON
-       {: RESULT = new Fragment(Fragment.GLOBAL, buildVarDecl(acc, t, id, e, false)); :}
+       {: RESULT = buildVarDecl(acc, t, id, e, false); :}
        | type:t IDENTIFIER:id SEMICOLON
-       {: RESULT = new Fragment(Fragment.GLOBAL, buildVarDecl(null, t, id, null, false)); :}
+       {: RESULT = buildVarDecl(null, t, id, null, false); :}
        | type:t IDENTIFIER:id ASSIGN expression:e SEMICOLON
-       {: RESULT = new Fragment(Fragment.GLOBAL, buildVarDecl(null, t, id, e, false)); :}
-       | CONST:c type:t IDENTIFIER:id ASSIGN expression:e SEMICOLON
-       {: RESULT = new Fragment(Fragment.GLOBAL, buildVarDecl(null, t, id, e, true)); :}
-       | access_modifier:acc VOID:v IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
+       {: RESULT = buildVarDecl(null, t, id, e, false); :}
+       | CONST type:t IDENTIFIER:id ASSIGN expression:e SEMICOLON
+       {: RESULT = buildVarDecl(null, t, id, e, true); :}
+       /* Funciones con tipo de retorno void */
+       | access_modifier:acc VOID IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
        {: RESULT = new Fragment(Fragment.FUNCTION, buildFunction(acc, "void", id, p, b)); :}
-       | VOID:v IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
+       | VOID IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
        {: RESULT = new Fragment(Fragment.FUNCTION, buildFunction(null, "void", id, p, b)); :}
+       /* Funciones con tipo de retorno */
        | access_modifier:acc type:t IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
        {: RESULT = new Fragment(Fragment.FUNCTION, buildFunction(acc, t, id, p, b)); :}
        | type:t IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
        {: RESULT = new Fragment(Fragment.FUNCTION, buildFunction(null, t, id, p, b)); :}
+       /* Arrays */
        | type:t IDENTIFIER:id LEFT_BRACKET INTEGER_LITERAL:size RIGHT_BRACKET SEMICOLON
-       {: RESULT = new Fragment(Fragment.GLOBAL, buildArrayDecl(null, t, id, size, null)); :}
+       {: RESULT = buildArrayDecl(null, t, id, size, null); :}
        | access_modifier:acc type:t IDENTIFIER:id LEFT_BRACKET INTEGER_LITERAL:size RIGHT_BRACKET SEMICOLON
-       {: RESULT = new Fragment(Fragment.GLOBAL, buildArrayDecl(acc, t, id, size, null)); :}
+       {: RESULT = buildArrayDecl(acc, t, id, size, null); :}
        | type:t IDENTIFIER:id LEFT_BRACKET INTEGER_LITERAL:size RIGHT_BRACKET ASSIGN LEFT_BRACE array_values:vals RIGHT_BRACE SEMICOLON
-       {: RESULT = new Fragment(Fragment.GLOBAL, buildArrayDecl(null, t, id, size, vals)); :}
+       {: RESULT = buildArrayDecl(null, t, id, size, vals); :}
        | access_modifier:acc type:t IDENTIFIER:id LEFT_BRACKET INTEGER_LITERAL:size RIGHT_BRACKET ASSIGN LEFT_BRACE array_values:vals RIGHT_BRACE SEMICOLON
-       {: RESULT = new Fragment(Fragment.GLOBAL, buildArrayDecl(acc, t, id, size, vals)); :}
+       {: RESULT = buildArrayDecl(acc, t, id, size, vals); :}
        ;
 
-decl_class ::= CLASS:c IDENTIFIER:id LEFT_BRACE class_member_list:members RIGHT_BRACE
+/* ════════════════════════════════════════════════════════════════════════
+   CLASES
+   ════════════════════════════════════════════════════════════════════════ */
+
+decl_class ::= CLASS IDENTIFIER:id LEFT_BRACE class_member_list:members RIGHT_BRACE
              {: RESULT = new Fragment(Fragment.CLASS, "class " + id + " {\n" + joinClassMembers(members) + "};"); :}
-             | CLASS:c IDENTIFIER:id LEFT_BRACE class_member_list:members error:e
+             | CLASS IDENTIFIER:id LEFT_BRACE class_member_list:members error:e
              {:
-                addSyntaxError(eleft, eright, "EOF", "Falta llave de cierre '}' en la clase");
-                RESULT = new Fragment(Fragment.CLASS, "class " + id + " {\n" + joinClassMembers(members) + "};");
+                 recoverError("Falta llave de cierre '}' en la clase '" + id + "'");
+                 RESULT = new Fragment(Fragment.CLASS, "class " + id + " {\n" + joinClassMembers(members) + "};");
              :}
              ;
 
@@ -555,23 +660,37 @@ class_member ::= decl:d
                {: RESULT = c; :}
                ;
 
+/* Constructor */
 decl_constructors ::= IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
                     {: RESULT = buildConstructor(id, p, b); :}
-                    | IDENTIFIER:id LEFT_PAREN error:e RIGHT_PAREN block:b
+                    | IDENTIFIER:id LEFT_PAREN error RIGHT_PAREN block:b
                     {:
-                        addSyntaxError(eleft, eright, "error", "Parámetros inválidos en constructor");
+                        recoverError("Parámetros inválidos en constructor '" + id + "'");
                         RESULT = buildConstructor(id, new ArrayList(), b);
+                    :}
+                    | IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN error:e
+                    {:
+                        recoverError("Falta bloque '{...}' en el constructor '" + id + "'");
+                        RESULT = buildConstructor(id, p, "{}");
                     :}
                     ;
 
-new_expr ::= NEW:n IDENTIFIER:id LEFT_PAREN arg_list:args RIGHT_PAREN
+/* ════════════════════════════════════════════════════════════════════════
+   NEW
+   ════════════════════════════════════════════════════════════════════════ */
+
+new_expr ::= NEW IDENTIFIER:id LEFT_PAREN arg_list:args RIGHT_PAREN
            {: RESULT = "new " + id + "(" + argsToCpp(args) + ")"; :}
-           | NEW:n IDENTIFIER:id LEFT_PAREN error:e RIGHT_PAREN
+           | NEW IDENTIFIER:id LEFT_PAREN error RIGHT_PAREN
            {:
-                addSyntaxError(eleft, eright, "error", "Argumentos inválidos en creación de objeto");
-                RESULT = "new " + id + "()";
+               recoverError("Argumentos inválidos en creación de objeto");
+               RESULT = "new " + id + "()";
            :}
            ;
+
+/* ════════════════════════════════════════════════════════════════════════
+   ARRAYS
+   ════════════════════════════════════════════════════════════════════════ */
 
 array_values ::= expression:e
                {:
@@ -580,16 +699,15 @@ array_values ::= expression:e
                    RESULT = vals;
                :}
                | array_values:list COMMA expression:e
-               {:
-                   list.add(e);
-                   RESULT = list;
-               :}
+               {: list.add(e); RESULT = list; :}
                ;
 
-param_list ::= non_empty_param_list:p
-             {: RESULT = p; :}
-             | /* empty */
-             {: RESULT = new ArrayList(); :}
+/* ════════════════════════════════════════════════════════════════════════
+   PARÁMETROS
+   ════════════════════════════════════════════════════════════════════════ */
+
+param_list ::= non_empty_param_list:p {: RESULT = p; :}
+             | /* empty */            {: RESULT = new ArrayList(); :}
              ;
 
 non_empty_param_list ::= non_empty_param_list:list COMMA param:p
@@ -608,97 +726,103 @@ param ::= type:t IDENTIFIER:id
         {: RESULT = new ParamInfo(cppType(t), id, l); :}
         ;
 
-type ::= INT {: RESULT = "int"; :}
-       | FLOAT {: RESULT = "float"; :}
+/* ════════════════════════════════════════════════════════════════════════
+   TIPOS
+   ════════════════════════════════════════════════════════════════════════ */
+
+type ::= INT    {: RESULT = "int"; :}
+       | FLOAT  {: RESULT = "float"; :}
        | DOUBLE {: RESULT = "double"; :}
-       | CHAR {: RESULT = "char"; :}
-       | BOOL {: RESULT = "bool"; :}
+       | CHAR   {: RESULT = "char"; :}
+       | BOOL   {: RESULT = "bool"; :}
        | STRING {: RESULT = "string"; :}
        ;
 
-if_stmt ::= IF:i LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk
+/* ════════════════════════════════════════════════════════════════════════
+   CONTROL DE FLUJO
+   ════════════════════════════════════════════════════════════════════════ */
+
+if_stmt ::= IF LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk
           {: RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + thenBlk); :}
-          | IF:i LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk ELSE block:elseBlk
+          | IF LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk ELSE block:elseBlk
           {: RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + thenBlk + " else " + elseBlk); :}
-          | IF:i LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk ELSE if_stmt:elseIf
+          | IF LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk ELSE if_stmt:elseIf
           {: RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + thenBlk + " else " + elseIf.code); :}
-          | IF:i LEFT_PAREN error:e RIGHT_PAREN block:b
-            {:
-                addSyntaxError(eleft, eright, "error", "Condición inválida en if");
-                RESULT = new Fragment(Fragment.STATEMENT, "if (false) " + b);
-            :}
-          | IF:i LEFT_PAREN expression:cond error:e block:b
-            {:
-                addSyntaxError(eleft, eright, "error", "Falta ')' en la condición del if");
-                RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + b);
-            :}
+          | IF LEFT_PAREN error RIGHT_PAREN block:b
+          {:
+              recoverError("Condición inválida en if");
+              RESULT = new Fragment(Fragment.STATEMENT, "if (false) " + b);
+          :}
+          | IF LEFT_PAREN expression:cond error block:b
+          {:
+              recoverError("Falta ')' en la condición del if");
+              RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + b);
+          :}
           ;
 
-while_stmt ::= WHILE:w LEFT_PAREN expression:cond RIGHT_PAREN block:b
+while_stmt ::= WHILE LEFT_PAREN expression:cond RIGHT_PAREN block:b
              {: RESULT = new Fragment(Fragment.STATEMENT, "while (" + cond + ") " + b); :}
-             | WHILE:w LEFT_PAREN error:e RIGHT_PAREN block:b
-               {:
-                   addSyntaxError(eleft, eright, "error", "Condición inválida en while");
-                   RESULT = new Fragment(Fragment.STATEMENT, "while (false) " + b);
-               :}
-             | WHILE:w LEFT_PAREN expression:cond error:e block:b
-               {:
-                   addSyntaxError(eleft, eright, "error", "Falta ')' en la condición del while");
-                   RESULT = new Fragment(Fragment.STATEMENT, "while (" + cond + ") " + b);
-               :}
+             | WHILE LEFT_PAREN error RIGHT_PAREN block:b
+             {:
+                 recoverError("Condición inválida en while");
+                 RESULT = new Fragment(Fragment.STATEMENT, "while (false) " + b);
+             :}
+             | WHILE LEFT_PAREN expression:cond error block:b
+             {:
+                 recoverError("Falta ')' en la condición del while");
+                 RESULT = new Fragment(Fragment.STATEMENT, "while (" + cond + ") " + b);
+             :}
              ;
 
-do_while_stmt ::= DO:d block:b WHILE LEFT_PAREN expression:cond RIGHT_PAREN SEMICOLON
+do_while_stmt ::= DO block:b WHILE LEFT_PAREN expression:cond RIGHT_PAREN SEMICOLON
                 {: RESULT = new Fragment(Fragment.STATEMENT, "do " + b + " while (" + cond + ");"); :}
-                | DO:d block:b WHILE LEFT_PAREN expression:cond RIGHT_PAREN error:e
+                | DO block:b WHILE LEFT_PAREN expression:cond RIGHT_PAREN error:e
                 {:
-                    addSyntaxError(eleft, eright, "error", "Falta ';' al final del do-while");
+                    recoverError("Falta ';' al final del do-while");
                     RESULT = new Fragment(Fragment.STATEMENT, "do " + b + " while (" + cond + ");");
                 :}
                 ;
 
-for_stmt ::= FOR:f LEFT_PAREN for_init:init SEMICOLON expression:cond SEMICOLON for_update:update RIGHT_PAREN block:b
+for_stmt ::= FOR LEFT_PAREN for_init:init SEMICOLON expression:cond SEMICOLON for_update:update RIGHT_PAREN block:b
            {: RESULT = new Fragment(Fragment.STATEMENT, "for (" + init + "; " + cond + "; " + update + ") " + b); :}
-           | FOR:f LEFT_PAREN error:e RIGHT_PAREN block:b
-             {:
-                 addSyntaxError(eleft, eright, "error", "Estructura inválida en for");
-                 RESULT = new Fragment(Fragment.STATEMENT, "for (;;) " + b);
-             :}
-           | FOR:f LEFT_PAREN for_init:init SEMICOLON expression:cond SEMICOLON for_update:update error:e block:b
-             {:
-                 addSyntaxError(eleft, eright, "error", "Falta ')' en la estructura del for");
-                 RESULT = new Fragment(Fragment.STATEMENT, "for (" + init + "; " + cond + "; " + update + ") " + b);
-             :}
+           | FOR LEFT_PAREN error RIGHT_PAREN block:b
+           {:
+               recoverError("Estructura inválida en for");
+               RESULT = new Fragment(Fragment.STATEMENT, "for (;;) " + b);
+           :}
+           | FOR LEFT_PAREN for_init:init SEMICOLON expression:cond SEMICOLON for_update:update error block:b
+           {:
+               recoverError("Falta ')' en la estructura del for");
+               RESULT = new Fragment(Fragment.STATEMENT, "for (" + init + "; " + cond + "; " + update + ") " + b);
+           :}
            ;
 
-for_init ::= type:t IDENTIFIER:id ASSIGN expression:e
-           {: RESULT = cppType(t) + " " + id + " = " + e; :}
-           | type:t IDENTIFIER:id
-           {: RESULT = cppType(t) + " " + id; :}
-           | expression:e
-           {: RESULT = e; :}
-           | /* empty */
-           {: RESULT = ""; :}
+for_init ::= type:t IDENTIFIER:id ASSIGN expression:e {: RESULT = cppType(t) + " " + id + " = " + e; :}
+           | type:t IDENTIFIER:id                     {: RESULT = cppType(t) + " " + id; :}
+           | expression:e                             {: RESULT = e; :}
+           | /* empty */                              {: RESULT = ""; :}
            ;
 
-for_update ::= expression:e
-             {: RESULT = e; :}
-             | /* empty */
-             {: RESULT = ""; :}
+for_update ::= expression:e {: RESULT = e; :}
+             | /* empty */  {: RESULT = ""; :}
              ;
 
-switch_stmt ::= SWITCH:s LEFT_PAREN expression:expr RIGHT_PAREN LEFT_BRACE case_list:c RIGHT_BRACE
+/* ════════════════════════════════════════════════════════════════════════
+   SWITCH
+   ════════════════════════════════════════════════════════════════════════ */
+
+switch_stmt ::= SWITCH LEFT_PAREN expression:expr RIGHT_PAREN LEFT_BRACE case_list:c RIGHT_BRACE
               {: RESULT = new Fragment(Fragment.STATEMENT, "switch (" + expr + ") {\n" + indent(join(c, "\n")) + "}"); :}
-              | SWITCH:s LEFT_PAREN error:e RIGHT_PAREN LEFT_BRACE case_list:c RIGHT_BRACE
-                {:
-                    addSyntaxError(eleft, eright, "error", "Expresión inválida en switch");
-                    RESULT = new Fragment(Fragment.STATEMENT, "switch (0) {\n" + indent(join(c, "\n")) + "}");
-                :}
-              | SWITCH:s LEFT_PAREN expression:expr error:e LEFT_BRACE case_list:c RIGHT_BRACE
-                {:
-                    addSyntaxError(eleft, eright, "error", "Falta ')' en la expresión del switch");
-                    RESULT = new Fragment(Fragment.STATEMENT, "switch (" + expr + ") {\n" + indent(join(c, "\n")) + "}");
-                :}
+              | SWITCH LEFT_PAREN error RIGHT_PAREN LEFT_BRACE case_list:c RIGHT_BRACE
+              {:
+                  recoverError("Expresión inválida en switch");
+                  RESULT = new Fragment(Fragment.STATEMENT, "switch (0) {\n" + indent(join(c, "\n")) + "}");
+              :}
+              | SWITCH LEFT_PAREN expression:expr error LEFT_BRACE case_list:c RIGHT_BRACE
+              {:
+                  recoverError("Falta ')' en la expresión del switch");
+                  RESULT = new Fragment(Fragment.STATEMENT, "switch (" + expr + ") {\n" + indent(join(c, "\n")) + "}");
+              :}
               ;
 
 case_list ::= case_list:list case_clause:c
@@ -707,201 +831,200 @@ case_list ::= case_list:list case_clause:c
             {: RESULT = new ArrayList(); :}
             ;
 
-case_clause ::= CASE:c expression:e COLON statement_list:s
+/*
+ * FIX: eliminada la alternativa "CASE literal" porque literal ya es
+ * subconjunto de expression, lo que generaba conflictos shift/reduce.
+ */
+case_clause ::= CASE expression:e COLON statement_list:s
               {: RESULT = "case " + e + ":\n" + indent(joinFragmentsAsBody(s)); :}
-              | CASE:c literal:l COLON statement_list:s
-              {: RESULT = "case " + l + ":\n" + indent(joinFragmentsAsBody(s)); :}
-              | DEFAULT:d COLON statement_list:s
+              | DEFAULT COLON statement_list:s
               {: RESULT = "default:\n" + indent(joinFragmentsAsBody(s)); :}
-              | CASE:c error:e COLON statement_list:s
+              | CASE error COLON statement_list:s
               {:
-                    addSyntaxError(eleft, eright, "error", "Expresión inválida en case");
-                    RESULT = "case 0:\n" + indent(joinFragmentsAsBody(s));
+                  recoverError("Expresión inválida en case");
+                  RESULT = "case 0:\n" + indent(joinFragmentsAsBody(s));
               :}
               ;
 
-try_stmt ::= TRY:t block:tryBlk CATCH LEFT_PAREN param:p RIGHT_PAREN block:catchBlk
-           {: RESULT = new Fragment(Fragment.STATEMENT, "try " + tryBlk + " catch (" + p.toCatchCpp() + ") " + catchBlk); :}
-           | TRY:t block:tryBlk CATCH LEFT_PAREN error:e RIGHT_PAREN block:catchBlk
+/* ════════════════════════════════════════════════════════════════════════
+   TRY / CATCH — admite múltiples bloques catch
+   ════════════════════════════════════════════════════════════════════════ */
+
+try_stmt ::= TRY block:tryBlk catch_list:catches
            {:
-                addSyntaxError(eleft, eright, "error", "Parámetro inválido en catch");
-                RESULT = new Fragment(Fragment.STATEMENT, "try " + tryBlk + " catch (const std::exception& ex) " + catchBlk);
+               StringBuilder sb = new StringBuilder("try " + tryBlk);
+               for (Object c : catches) sb.append((String) c);
+               RESULT = new Fragment(Fragment.STATEMENT, sb.toString());
            :}
            ;
 
-throw_stmt ::= THROW:t expression:e SEMICOLON
-             {: RESULT = new Fragment(Fragment.STATEMENT, "throw " + e + ";"); :}
-             | THROW:t expression:e error
+catch_list ::= catch_list:list catch_clause:c
+             {: list.add(c); RESULT = list; :}
+             | catch_clause:c
              {:
-                addSyntaxError(eleft, eright, "error", "Falta ';' después de throw");
-                RESULT = new Fragment(Fragment.STATEMENT, "throw " + e + ";");
+                 List list = new ArrayList();
+                 list.add(c);
+                 RESULT = list;
              :}
              ;
 
-expression ::= assign_expr:e
-             {: RESULT = e; :}
-             ;
-
-assign_expr ::= lvalue:l ASSIGN assign_expr:r
-              {: RESULT = l + " = " + r; :}
-              | lvalue:l PLUS_ASSIGN assign_expr:r
-              {: RESULT = l + " += " + r; :}
-              | lvalue:l MINUS_ASSIGN assign_expr:r
-              {: RESULT = l + " -= " + r; :}
-              | lvalue:l MULTIPLY_ASSIGN assign_expr:r
-              {: RESULT = l + " *= " + r; :}
-              | lvalue:l DIVIDE_ASSIGN assign_expr:r
-              {: RESULT = l + " /= " + r; :}
-              | lvalue:l MOD_ASSIGN assign_expr:r
-              {: RESULT = l + " %= " + r; :}
-              | array_access:a ASSIGN assign_expr:r
-              {: RESULT = a + " = " + r; :}
-              | array_access:a PLUS_ASSIGN assign_expr:r
-              {: RESULT = a + " += " + r; :}
-              | array_access:a MINUS_ASSIGN assign_expr:r
-              {: RESULT = a + " -= " + r; :}
-              | array_access:a MULTIPLY_ASSIGN assign_expr:r
-              {: RESULT = a + " *= " + r; :}
-              | array_access:a DIVIDE_ASSIGN assign_expr:r
-              {: RESULT = a + " /= " + r; :}
-              | array_access:a MOD_ASSIGN assign_expr:r
-              {: RESULT = a + " %= " + r; :}
-              | ternary_expr:t
-              {: RESULT = t; :}
-              ;
-
-ternary_expr ::= or_expr:o
-               {: RESULT = o; :}
-               | or_expr:c QUESTION:q expression:t COLON ternary_expr:f
-               {: RESULT = "(" + c + " ? " + t + " : " + f + ")"; :}
-               ;
-
-or_expr ::= or_expr:l OR:o and_expr:r
-          {: RESULT = "(" + l + " || " + r + ")"; :}
-          | and_expr:e
-          {: RESULT = e; :}
-          ;
-
-and_expr ::= and_expr:l AND:a eq_expr:r
-           {: RESULT = "(" + l + " && " + r + ")"; :}
-           | eq_expr:e
-           {: RESULT = e; :}
-           ;
-
-eq_expr ::= eq_expr:l EQUALS:eq rel_expr:r
-          {: RESULT = "(" + l + " == " + r + ")"; :}
-          | eq_expr:l NOT_EQUALS:ne rel_expr:r
-          {: RESULT = "(" + l + " != " + r + ")"; :}
-          | rel_expr:e
-          {: RESULT = e; :}
-          ;
-
-rel_expr ::= rel_expr:l LESS_THAN:op add_expr:r
-           {: RESULT = "(" + l + " < " + r + ")"; :}
-           | rel_expr:l GREATER_THAN:op add_expr:r
-           {: RESULT = "(" + l + " > " + r + ")"; :}
-           | rel_expr:l LESS_EQUAL:op add_expr:r
-           {: RESULT = "(" + l + " <= " + r + ")"; :}
-           | rel_expr:l GREATER_EQUAL:op add_expr:r
-           {: RESULT = "(" + l + " >= " + r + ")"; :}
-           | add_expr:e
-           {: RESULT = e; :}
-           ;
-
-add_expr ::= add_expr:l PLUS:op mul_expr:r
-           {: RESULT = "(" + l + " + " + r + ")"; :}
-           | add_expr:l MINUS:op mul_expr:r
-           {: RESULT = "(" + l + " - " + r + ")"; :}
-           | mul_expr:e
-           {: RESULT = e; :}
-           ;
-
-mul_expr ::= mul_expr:l MULTIPLY:op unary_expr:r
-           {: RESULT = "(" + l + " * " + r + ")"; :}
-           | mul_expr:l DIVIDE:op unary_expr:r
-           {: RESULT = "(" + l + " / " + r + ")"; :}
-           | mul_expr:l MOD:op unary_expr:r
-           {: RESULT = "(" + l + " % " + r + ")"; :}
-           | unary_expr:e
-           {: RESULT = e; :}
-           ;
-
-unary_expr ::= NOT:op unary_expr:e
-             {: RESULT = "(!" + e + ")"; :}
-             | MINUS:op unary_expr:e
-             {: RESULT = "(-" + e + ")"; :}
-             %prec UMINUS
-             | INCREMENT:op unary_expr:e
-             {: RESULT = "(++" + e + ")"; :}
-             | DECREMENT:op unary_expr:e
-             {: RESULT = "(--" + e + ")"; :}
-             | primary:p
-             {: RESULT = p; :}
-             ;
-
-lvalue ::= IDENTIFIER:id
-         {: RESULT = id; :}
-         | THIS:t DOT IDENTIFIER:id
-         {: RESULT = "this->" + id; :}
-         | primary:p DOT IDENTIFIER:id
-         {: RESULT = p + "." + id; :}
-         ;
-
-array_access ::= IDENTIFIER:id LEFT_BRACKET expression:index RIGHT_BRACKET
-               {: RESULT = id + "[" + index + "]"; :}
-               | IDENTIFIER:id LEFT_BRACKET error:e RIGHT_BRACKET
+catch_clause ::= CATCH LEFT_PAREN param:p RIGHT_PAREN block:b
+               {: RESULT = " catch (" + p.toCatchCpp() + ") " + b; :}
+               | CATCH LEFT_PAREN error RIGHT_PAREN block:b
                {:
-                    addSyntaxError(eleft, eright, "error", "Índice inválido en acceso a arreglo");
-                    RESULT = id + "[0]";
+                   recoverError("Parámetro inválido en catch");
+                   RESULT = " catch (const std::exception& ex) " + b;
+               :}
+               | CATCH LEFT_PAREN param:p RIGHT_PAREN error:e
+               {:
+                   recoverError("Falta bloque '{...}' en catch");
+                   RESULT = " catch (" + p.toCatchCpp() + ") {}";
                :}
                ;
 
-primary ::= literal:l
-          {: RESULT = l; :}
-          | IDENTIFIER:id
-          {: RESULT = id; :}
-          | array_access:a
-          {: RESULT = a; :}
-          | func_call:f
-          {: RESULT = f; :}
-          | new_expr:n
-          {: RESULT = n; :}
-          | THIS:t
-          {: RESULT = "this"; :}
-          | THIS:t DOT IDENTIFIER:id
-          {: RESULT = "this->" + id; :}
-          | THIS:t DOT func_call:f
-          {: RESULT = "this->" + f; :}
-          | primary:p DOT IDENTIFIER:id
-          {: RESULT = p + "." + id; :}
-          | primary:p DOT func_call:f
-          {: RESULT = p + "." + f; :}
-          | primary:p INCREMENT
-          {: RESULT = "(" + p + "++)"; :}
-          | primary:p DECREMENT
-          {: RESULT = "(" + p + "--)"; :}
+/* ════════════════════════════════════════════════════════════════════════
+   THROW
+   ════════════════════════════════════════════════════════════════════════ */
+
+throw_stmt ::= THROW expression:e SEMICOLON
+             {: RESULT = new Fragment(Fragment.STATEMENT, "throw " + e + ";"); :}
+             | THROW expression:e error
+             {:
+                 recoverError("Falta ';' después de throw");
+                 RESULT = new Fragment(Fragment.STATEMENT, "throw " + e + ";");
+             :}
+             ;
+
+/* ════════════════════════════════════════════════════════════════════════
+   EXPRESIONES
+   ════════════════════════════════════════════════════════════════════════ */
+
+expression ::= assign_expr:e {: RESULT = e; :} ;
+
+assign_expr ::= lvalue:l ASSIGN      assign_expr:r {: RESULT = l + " = "  + r; :}
+              | lvalue:l PLUS_ASSIGN  assign_expr:r {: RESULT = l + " += " + r; :}
+              | lvalue:l MINUS_ASSIGN assign_expr:r {: RESULT = l + " -= " + r; :}
+              | lvalue:l MULTIPLY_ASSIGN assign_expr:r {: RESULT = l + " *= " + r; :}
+              | lvalue:l DIVIDE_ASSIGN   assign_expr:r {: RESULT = l + " /= " + r; :}
+              | lvalue:l MOD_ASSIGN      assign_expr:r {: RESULT = l + " %= " + r; :}
+              | array_access:a ASSIGN      assign_expr:r {: RESULT = a + " = "  + r; :}
+              | array_access:a PLUS_ASSIGN  assign_expr:r {: RESULT = a + " += " + r; :}
+              | array_access:a MINUS_ASSIGN assign_expr:r {: RESULT = a + " -= " + r; :}
+              | array_access:a MULTIPLY_ASSIGN assign_expr:r {: RESULT = a + " *= " + r; :}
+              | array_access:a DIVIDE_ASSIGN   assign_expr:r {: RESULT = a + " /= " + r; :}
+              | array_access:a MOD_ASSIGN      assign_expr:r {: RESULT = a + " %= " + r; :}
+              | ternary_expr:t {: RESULT = t; :}
+              ;
+
+ternary_expr ::= or_expr:o {: RESULT = o; :}
+               | or_expr:c QUESTION expression:t COLON ternary_expr:f
+               {: RESULT = "(" + c + " ? " + t + " : " + f + ")"; :}
+               ;
+
+or_expr  ::= or_expr:l  OR  and_expr:r {: RESULT = "(" + l + " || " + r + ")"; :}
+           | and_expr:e {: RESULT = e; :}
+           ;
+
+and_expr ::= and_expr:l AND eq_expr:r  {: RESULT = "(" + l + " && " + r + ")"; :}
+           | eq_expr:e {: RESULT = e; :}
+           ;
+
+eq_expr  ::= eq_expr:l EQUALS     rel_expr:r {: RESULT = "(" + l + " == " + r + ")"; :}
+           | eq_expr:l NOT_EQUALS  rel_expr:r {: RESULT = "(" + l + " != " + r + ")"; :}
+           | rel_expr:e {: RESULT = e; :}
+           ;
+
+rel_expr ::= rel_expr:l LESS_THAN     add_expr:r {: RESULT = "(" + l + " < "  + r + ")"; :}
+           | rel_expr:l GREATER_THAN  add_expr:r  {: RESULT = "(" + l + " > "  + r + ")"; :}
+           | rel_expr:l LESS_EQUAL    add_expr:r  {: RESULT = "(" + l + " <= " + r + ")"; :}
+           | rel_expr:l GREATER_EQUAL add_expr:r  {: RESULT = "(" + l + " >= " + r + ")"; :}
+           | add_expr:e {: RESULT = e; :}
+           ;
+
+add_expr ::= add_expr:l PLUS  mul_expr:r {: RESULT = "(" + l + " + " + r + ")"; :}
+           | add_expr:l MINUS mul_expr:r {: RESULT = "(" + l + " - " + r + ")"; :}
+           | mul_expr:e {: RESULT = e; :}
+           ;
+
+mul_expr ::= mul_expr:l MULTIPLY  unary_expr:r {: RESULT = "(" + l + " * " + r + ")"; :}
+           | mul_expr:l DIVIDE    unary_expr:r  {: RESULT = "(" + l + " / " + r + ")"; :}
+           | mul_expr:l MOD       unary_expr:r  {: RESULT = "(" + l + " % " + r + ")"; :}
+           | unary_expr:e {: RESULT = e; :}
+           ;
+
+unary_expr ::= NOT       unary_expr:e {: RESULT = "(!" + e + ")"; :}
+             | MINUS     unary_expr:e {: RESULT = "(-" + e + ")"; :}    %prec UMINUS
+             | INCREMENT unary_expr:e {: RESULT = "(++" + e + ")"; :}
+             | DECREMENT unary_expr:e {: RESULT = "(--" + e + ")"; :}
+             | primary:p {: RESULT = p; :}
+             ;
+
+/* ════════════════════════════════════════════════════════════════════════
+   LVALUE
+   FIX: eliminado "primary DOT IDENTIFIER" para evitar conflicto con
+   primary. El acceso a campo vive únicamente en primary.
+   ════════════════════════════════════════════════════════════════════════ */
+
+lvalue ::= IDENTIFIER:id
+         {: RESULT = id; :}
+         | THIS DOT IDENTIFIER:id
+         {: RESULT = "this->" + id; :}
+         ;
+
+/* ════════════════════════════════════════════════════════════════════════
+   ARRAY ACCESS
+   ════════════════════════════════════════════════════════════════════════ */
+
+array_access ::= IDENTIFIER:id LEFT_BRACKET expression:index RIGHT_BRACKET
+               {: RESULT = id + "[" + index + "]"; :}
+               | IDENTIFIER:id LEFT_BRACKET error RIGHT_BRACKET
+               {:
+                   recoverError("Índice inválido en acceso a arreglo");
+                   RESULT = id + "[0]";
+               :}
+               ;
+
+/* ════════════════════════════════════════════════════════════════════════
+   PRIMARY
+   El acceso a campo (DOT) vive aquí para no duplicarlo en lvalue.
+   ════════════════════════════════════════════════════════════════════════ */
+
+primary ::= literal:l          {: RESULT = l; :}
+          | IDENTIFIER:id      {: RESULT = id; :}
+          | array_access:a     {: RESULT = a; :}
+          | func_call:f        {: RESULT = f; :}
+          | new_expr:n         {: RESULT = n; :}
+          | THIS               {: RESULT = "this"; :}
+          | THIS DOT IDENTIFIER:id    {: RESULT = "this->" + id; :}
+          | THIS DOT func_call:f      {: RESULT = "this->" + f; :}
+          | primary:p DOT IDENTIFIER:id   {: RESULT = p + "." + id; :}
+          | primary:p DOT func_call:f     {: RESULT = p + "." + f; :}
+          | primary:p INCREMENT           {: RESULT = "(" + p + "++)"; :}
+          | primary:p DECREMENT           {: RESULT = "(" + p + "--)"; :}
           | LEFT_PAREN expression:e RIGHT_PAREN
           {: RESULT = "(" + e + ")"; :}
           | LEFT_PAREN expression:e error
           {:
-                addSyntaxError(eleft, eright, "error", "Falta ')' en la expresión agrupada");
-                RESULT = "(" + e + ")";
+              recoverError("Falta ')' en la expresión agrupada");
+              RESULT = "(" + e + ")";
           :}
           ;
 
+/* ════════════════════════════════════════════════════════════════════════
+   LLAMADAS A FUNCIÓN
+   ════════════════════════════════════════════════════════════════════════ */
+
 func_call ::= IDENTIFIER:id LEFT_PAREN arg_list:args RIGHT_PAREN
             {: RESULT = id + "(" + argsToCpp(args) + ")"; :}
-            | IDENTIFIER:id LEFT_PAREN error:e RIGHT_PAREN
+            | IDENTIFIER:id LEFT_PAREN error RIGHT_PAREN
             {:
-                addSyntaxError(eleft, eright, "error", "Argumentos inválidos en llamada a función");
+                recoverError("Argumentos inválidos en llamada a función '" + id + "'");
                 RESULT = id + "()";
             :}
             ;
 
-arg_list ::= non_empty_arg_list:a
-           {: RESULT = a; :}
-           | /* empty */
-           {: RESULT = new ArrayList(); :}
+arg_list ::= non_empty_arg_list:a {: RESULT = a; :}
+           | /* empty */          {: RESULT = new ArrayList(); :}
            ;
 
 non_empty_arg_list ::= non_empty_arg_list:list COMMA expression:e
@@ -914,16 +1037,15 @@ non_empty_arg_list ::= non_empty_arg_list:list COMMA expression:e
                      :}
                      ;
 
-literal ::= INTEGER_LITERAL:i
-          {: RESULT = i.toString(); :}
-          | DECIMAL_LITERAL:d
-          {: RESULT = d.toString(); :}
-          | STRING_LITERAL:s
-          {: RESULT = s; :}
-          | TRUE:t
-          {: RESULT = "true"; :}
-          | FALSE:f
-          {: RESULT = "false"; :}
-          | NULL:n
-          {: RESULT = "nullptr"; :}
+/* ════════════════════════════════════════════════════════════════════════
+   LITERALES
+   ════════════════════════════════════════════════════════════════════════ */
+
+literal ::= INTEGER_LITERAL:i  {: RESULT = i.toString(); :}
+          | DECIMAL_LITERAL:d  {: RESULT = d.toString(); :}
+          | STRING_LITERAL:s   {: RESULT = s; :}
+          | CHAR_LITERAL:c     {: RESULT = c; :}
+          | TRUE               {: RESULT = "true"; :}
+          | FALSE              {: RESULT = "false"; :}
+          | NULL               {: RESULT = "nullptr"; :}
           ;

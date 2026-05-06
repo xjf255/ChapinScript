@@ -37,6 +37,7 @@ public enum TokenType {
     INTEGER_LITERAL,
     DECIMAL_LITERAL,
     STRING_LITERAL,
+    CHAR_LITERAL,
 
     /* Operadores */
     EQUALS,             // GEMELOS
