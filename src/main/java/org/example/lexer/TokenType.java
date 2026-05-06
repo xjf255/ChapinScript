@@ -37,6 +37,7 @@ public enum TokenType {
     INTEGER_LITERAL,
     DECIMAL_LITERAL,
     STRING_LITERAL,
+    CHAR_LITERAL,
 
     /* Operadores */
     EQUALS,             // GEMELOS
@@ -60,6 +61,7 @@ public enum TokenType {
     /* Operadores aritméticos */
     PLUS,               // CRUZ
     MINUS,              // RAYA
+    UMINUS,
     MULTIPLY,           // ESTRELLA
     DIVIDE,             // RAMPA
     MOD,                // SOBRA

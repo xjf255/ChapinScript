@@ -1,8 +1,8 @@
-nimais main() {
-    cabal edad = 20
-    chisme nombre = "Fernando"
+nimais main ABRAZO RESPANDO ALMA
+    cabal edad DAR 20
+    chisme nombre DAR "Fernando"
 
-    edad = nombre
+    edad DAR nombre
 
-    chotear("Edad: " + edad)
-}
+    chotear ABRAZO "Edad: " CRUZ edad RESPANDO
+CUERPO
