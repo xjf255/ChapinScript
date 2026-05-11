@@ -1,3 +1,11 @@
+/* ============================================================
+   errores_sintacticos.chap
+   Cada bloque cubre un tipo distinto de error sintáctico.
+   Se usan variables y funciones con nombres válidos para que
+   el lexer no interfiera — todos los errores son del parser.
+   ============================================================ */
+
+
 // ══════════════════════════════════════════════════════════════
 // ERROR 1: Falta FRENO (;) al declarar variable
 // Regla: type IDENTIFIER ASSIGN expression error
@@ -253,10 +261,11 @@ CUERPO
 
 // ══════════════════════════════════════════════════════════════
 // ERROR 23: ELSE sin IF válido
-// syntax_error con sym.ELSE
+// syntax_error con sym.ELSE — chapus debe aparecer DENTRO de una
+// función justo después de una sentencia, sin simon previo.
 // ══════════════════════════════════════════════════════════════
 nimais errorElse ABRAZO RESPANDO ALMA
-    chotear ABRAZO "antes" RESPANDO FRENO
+    cabal n DAR 5 FRENO
     chapus ALMA
         chotear ABRAZO "else huerfano" RESPANDO FRENO
     CUERPO

@@ -116,18 +116,15 @@ parser code {:
     private int normalizeColumn(int column) { return column < 1 ? 1 : column; }
 
     private void addSyntaxError(Symbol token, String message) {
-        String lexeme = "EOF";
         int line, column;
+        String lexeme;
 
         if (token != null) {
-            if (token.value != null && !token.value.toString().isBlank()) {
-                lexeme = token.value.toString();
-            } else if (token.sym == sym.EOF) {
-                lexeme = "EOF";
-            }
+            lexeme = resolveLexeme(token);
             line   = normalizeLine(token.left);
             column = normalizeColumn(token.right);
         } else {
+            lexeme = "desconocido";
             line   = 1;
             column = 1;
         }
@@ -153,22 +150,130 @@ parser code {:
     }
 
     /**
-     * FIX: extraído en método propio para reutilizarse tanto en el camino
-     * normal como en el camino justRecovered. Así nunca se pierde la
-     * posición de un error real cuando hay errores encadenados.
+     * Mapa de sym (código interno de CUP) al lexema ChapinScript real.
+     * Necesario porque los terminales sin valor semántico (palabras reservadas,
+     * operadores, delimitadores) llegan al parser con token.value == null.
+     * Sin este mapa el lexema reportado sería "desconocido" o el del siguiente
+     * token de sincronización.
+     */
+    private String symToChapinLexeme(int symCode) {
+        switch (symCode) {
+            // Palabras reservadas
+            case sym.PRINT:     return "chotear";
+            case sym.IF:        return "simon";
+            case sym.ELSE:      return "chapus";
+            case sym.SWITCH:    return "chiripa";
+            case sym.CASE:      return "wasa";
+            case sym.DEFAULT:   return "porsiacaso";
+            case sym.FOR:       return "vuelta";
+            case sym.WHILE:     return "seguile";
+            case sym.DO:        return "dale";
+            case sym.BREAK:     return "cuaje";
+            case sym.CONTINUE:  return "chanin";
+            case sym.RETURN:    return "vonos";
+            case sym.INT:       return "cabal";
+            case sym.FLOAT:     return "pisto";
+            case sym.DOUBLE:    return "pistazo";
+            case sym.CHAR:      return "cachito";
+            case sym.BOOL:      return "casaca";
+            case sym.VOID:      return "nimais";
+            case sym.STRING:    return "chisme";
+            case sym.CONST:     return "fijo";
+            case sym.CLASS:     return "banda";
+            case sym.THIS:      return "vos";
+            case sym.TRY:       return "calale";
+            case sym.CATCH:     return "atrapalo";
+            case sym.THROW:     return "morongazo";
+            case sym.PUBLIC:    return "barrio";
+            case sym.PRIVATE:   return "caquero";
+            case sym.TRUE:      return "deplano";
+            case sym.FALSE:     return "nel";
+            case sym.NULL:      return "inutil";
+            case sym.NEW:       return "estrenar";
+            // Operadores compuestos
+            case sym.EQUALS:          return "GEMELOS";
+            case sym.NOT_EQUALS:      return "DIVORCIO";
+            case sym.LESS_EQUAL:      return "BASE";
+            case sym.GREATER_EQUAL:   return "TECHO";
+            case sym.AND:             return "CADENA";
+            case sym.OR:              return "VALLAS";
+            case sym.INCREMENT:       return "CRUZ_CRUZ";
+            case sym.DECREMENT:       return "RAYA_RAYA";
+            case sym.PLUS_ASSIGN:     return "CRUZ_DAR";
+            case sym.MINUS_ASSIGN:    return "RAYA_DAR";
+            case sym.MULTIPLY_ASSIGN: return "ESTRELLA_DAR";
+            case sym.DIVIDE_ASSIGN:   return "RAMPA_DAR";
+            case sym.MOD_ASSIGN:      return "SOBRA_DAR";
+            // Operadores simples
+            case sym.ASSIGN:        return "DAR";
+            case sym.LESS_THAN:     return "PICO";
+            case sym.GREATER_THAN:  return "BOCA";
+            case sym.PLUS:          return "CRUZ";
+            case sym.MINUS:         return "RAYA";
+            case sym.MULTIPLY:      return "ESTRELLA";
+            case sym.DIVIDE:        return "RAMPA";
+            case sym.MOD:           return "SOBRA";
+            case sym.NOT:           return "GRITO";
+            // Delimitadores
+            case sym.SEMICOLON:     return "FRENO";
+            case sym.COMMA:         return "SEMILLA";
+            case sym.DOT:           return "ATOMO";
+            case sym.QUESTION:      return "DUDA";
+            case sym.COLON:         return "OJOS";
+            case sym.LEFT_PAREN:    return "ABRAZO";
+            case sym.RIGHT_PAREN:   return "RESPANDO";
+            case sym.LEFT_BRACE:    return "ALMA";
+            case sym.RIGHT_BRACE:   return "CUERPO";
+            case sym.LEFT_BRACKET:  return "CAJON";
+            case sym.RIGHT_BRACKET: return "TAPA";
+            // Especiales
+            case sym.EOF:           return "EOF";
+            default:                return null;   // tiene value semántico propio
+        }
+    }
+
+    /**
+     * Resuelve el lexema legible de un Symbol:
+     *  1. Si el sym tiene un lexema ChapinScript conocido → lo usa.
+     *  2. Si tiene value semántico (IDENTIFIER, literales) → usa value.toString().
+     *  3. Fallback → "desconocido".
+     */
+    private String resolveLexeme(Symbol s) {
+        if (s == null) return "desconocido";
+        String mapped = symToChapinLexeme(s.sym);
+        if (mapped != null) return mapped;
+        if (s.value != null && !s.value.toString().isBlank()) return s.value.toString();
+        return "desconocido";
+    }
+
+    /**
+     * Guarda la posición y lexema del token que causó el error, ANTES de que
+     * CUP descarte tokens durante la recuperación de pánico.
+     * Usa resolveLexeme() para obtener el nombre ChapinScript correcto.
      */
     private void saveErrorPosition(Symbol cur_token) {
         if (cur_token != null) {
             errorLine   = normalizeLine(cur_token.left);
             errorColumn = normalizeColumn(cur_token.right);
-            errorLexeme = (cur_token.value != null)
-                          ? cur_token.value.toString()
-                          : (cur_token.sym == sym.EOF ? "EOF" : "desconocido");
+            errorLexeme = resolveLexeme(cur_token);
         } else {
             errorLine   = 1;
             errorColumn = 1;
             errorLexeme = "desconocido";
         }
+    }
+
+    /**
+     * Versión de saveErrorPosition que acepta posición y lexema explícitos.
+     * Usar en producciones donde el token de contexto (ej. PRINT, IF, WHILE)
+     * ya fue consumido y su posición está disponible como variable :p, :w, etc.
+     * Esto garantiza que la bitácora diga "cerca de 'chotear'" y no el token
+     * que vino después.
+     */
+    private void saveErrorPosition(int line, int column, String lexeme) {
+        errorLine   = normalizeLine(line);
+        errorColumn = normalizeColumn(column);
+        errorLexeme = (lexeme != null && !lexeme.isBlank()) ? lexeme : "desconocido";
     }
 
     @Override
@@ -189,14 +294,69 @@ parser code {:
         String message = "Símbolo inesperado";
         if (cur_token != null) {
             switch (cur_token.sym) {
-                case sym.SEMICOLON:   message = "Punto y coma inesperado";          break;
-                case sym.RIGHT_BRACE: message = "Llave de cierre inesperada";       break;
-                case sym.RIGHT_PAREN: message = "Paréntesis de cierre inesperado";  break;
-                case sym.ELSE:        message = "ELSE sin IF válido previo";         break;
-                case sym.CASE:        message = "CASE fuera de un SWITCH válido";    break;
-                case sym.DEFAULT:     message = "DEFAULT fuera de un SWITCH válido"; break;
-                case sym.EOF:         message = "Fin de archivo inesperado";         break;
-                default:              message = "Símbolo inesperado";                break;
+                // Delimitadores
+                case sym.SEMICOLON:     message = "FRENO inesperado";                           break;
+                case sym.RIGHT_BRACE:   message = "CUERPO (}) inesperado";                      break;
+                case sym.RIGHT_PAREN:   message = "RESPANDO ()) inesperado";                    break;
+                case sym.LEFT_BRACE:    message = "ALMA ({) inesperada";                        break;
+                case sym.LEFT_PAREN:    message = "ABRAZO (() inesperado";                      break;
+                case sym.LEFT_BRACKET:  message = "CAJON ([) inesperado";                       break;
+                case sym.RIGHT_BRACKET: message = "TAPA (]) inesperado";                        break;
+                case sym.COMMA:         message = "SEMILLA (,) inesperada";                     break;
+                case sym.DOT:           message = "ATOMO (.) inesperado";                       break;
+                case sym.COLON:         message = "OJOS (:) inesperado";                        break;
+                // Palabras reservadas de control
+                case sym.ELSE:          message = "chapus (else) sin simon (if) válido previo"; break;
+                case sym.CASE:          message = "wasa (case) fuera de un chiripa (switch)";   break;
+                case sym.DEFAULT:       message = "porsiacaso fuera de un chiripa (switch)";    break;
+                case sym.IF:            message = "simon (if) inesperado";                      break;
+                case sym.WHILE:         message = "seguile (while) inesperado";                 break;
+                case sym.FOR:           message = "vuelta (for) inesperado";                    break;
+                case sym.DO:            message = "dale (do) inesperado";                       break;
+                case sym.SWITCH:        message = "chiripa (switch) inesperado";                break;
+                case sym.BREAK:         message = "cuaje (break) inesperado";                   break;
+                case sym.CONTINUE:      message = "chanin (continue) inesperado";               break;
+                case sym.RETURN:        message = "vonos (return) inesperado";                  break;
+                case sym.TRY:           message = "calale (try) inesperado";                    break;
+                case sym.CATCH:         message = "atrapalo (catch) inesperado";                break;
+                case sym.THROW:         message = "morongazo (throw) inesperado";               break;
+                case sym.CLASS:         message = "banda (class) inesperado";                   break;
+                case sym.NEW:           message = "estrenar (new) inesperado";                  break;
+                // Tipos
+                case sym.INT:           message = "cabal (int) inesperado";                     break;
+                case sym.FLOAT:         message = "pisto (float) inesperado";                   break;
+                case sym.DOUBLE:        message = "pistazo (double) inesperado";                break;
+                case sym.CHAR:          message = "cachito (char) inesperado";                  break;
+                case sym.BOOL:          message = "casaca (bool) inesperado";                   break;
+                case sym.STRING:        message = "chisme (string) inesperado";                 break;
+                case sym.VOID:          message = "nimais (void) inesperado";                   break;
+                case sym.CONST:         message = "fijo (const) inesperado";                    break;
+                // Operadores
+                case sym.ASSIGN:        message = "DAR (=) inesperado";                         break;
+                case sym.PLUS:          message = "CRUZ (+) inesperado";                        break;
+                case sym.MINUS:         message = "RAYA (-) inesperado";                        break;
+                case sym.MULTIPLY:      message = "ESTRELLA (*) inesperado";                    break;
+                case sym.DIVIDE:        message = "RAMPA (/) inesperado";                       break;
+                case sym.MOD:           message = "SOBRA (%) inesperado";                       break;
+                case sym.NOT:           message = "GRITO (!) inesperado";                       break;
+                case sym.EQUALS:        message = "GEMELOS (==) inesperado";                    break;
+                case sym.NOT_EQUALS:    message = "DIVORCIO (!=) inesperado";                   break;
+                case sym.LESS_THAN:     message = "PICO (<) inesperado";                        break;
+                case sym.GREATER_THAN:  message = "BOCA (>) inesperado";                        break;
+                case sym.LESS_EQUAL:    message = "BASE (<=) inesperado";                       break;
+                case sym.GREATER_EQUAL: message = "TECHO (>=) inesperado";                      break;
+                case sym.AND:           message = "CADENA (&&) inesperado";                     break;
+                case sym.OR:            message = "VALLAS (||) inesperado";                     break;
+                case sym.INCREMENT:     message = "CRUZ_CRUZ (++) inesperado";                  break;
+                case sym.DECREMENT:     message = "RAYA_RAYA (--) inesperado";                  break;
+                case sym.PLUS_ASSIGN:   message = "CRUZ_DAR (+=) inesperado";                   break;
+                case sym.MINUS_ASSIGN:  message = "RAYA_DAR (-=) inesperado";                   break;
+                case sym.MULTIPLY_ASSIGN: message = "ESTRELLA_DAR (*=) inesperado";             break;
+                case sym.DIVIDE_ASSIGN: message = "RAMPA_DAR (/=) inesperado";                  break;
+                case sym.MOD_ASSIGN:    message = "SOBRA_DAR (%=) inesperado";                  break;
+                // EOF
+                case sym.EOF:           message = "Fin de archivo inesperado";                  break;
+                default:                message = "Símbolo inesperado";                         break;
             }
         }
 
@@ -234,22 +394,50 @@ parser code {:
      * error original) en lugar de eleft/eright (posición del token de
      * sincronización, que puede estar lejos).
      * Activa justRecovered para que el siguiente syntax_error() automático
-     * de CUP sea descartado (pero la posición ya queda guardada gracias al
-     * FIX en syntax_error).
+     * de CUP sea descartado.
+     *
+     * Cascada: cuando break/continue sin FRENO disparan también un error
+     * en el for que los contiene, el segundo error ocurre en la misma
+     * línea del for (línea del token vuelta). Lo suprimimos comparando
+     * con lastRecoveredLine: si ya reportamos un error de recuperación
+     * muy cercano (dentro de ±2 líneas), el nuevo es cascada y se ignora.
      */
+    private int lastRecoveredLine = -1;
+
     private void recoverError(String message) {
         int    line   = (errorLine   > 0) ? errorLine   : 1;
         int    column = (errorColumn > 0) ? errorColumn : 1;
         String lexeme = (errorLexeme != null && !errorLexeme.isBlank())
                         ? errorLexeme : "desconocido";
 
-        addSyntaxError(line, column, lexeme, message);
+        // Suprimir errores en cascada: si ya registramos un error de
+        // recuperación muy cercano en líneas y el nuevo tiene lexema
+        // diferente (no es duplicado exacto), es probable cascada.
+        // Se usa un margen de 5 líneas para cubrir bloques anidados.
+        boolean esCascada = (lastRecoveredLine > 0)
+                         && (Math.abs(line - lastRecoveredLine) <= 5)
+                         && !syntaxErrors.isEmpty()
+                         && !syntaxErrors.get(syntaxErrors.size()-1).message.equals(message);
+
+        if (!esCascada) {
+            addSyntaxError(line, column, lexeme, message);
+            lastRecoveredLine = line;
+        }
 
         justRecovered = true;
-
         errorLine   = -1;
         errorColumn = -1;
         errorLexeme = null;
+    }
+
+    /**
+     * Versión que fuerza el registro ignorando la supresión de cascada.
+     * Usar para errores de nivel superior (clase sin cerrar, EOF, etc.)
+     * donde la cascada no aplica.
+     */
+    private void recoverErrorForced(String message) {
+        lastRecoveredLine = -1;   // resetear para que no suprima este
+        recoverError(message);
     }
 
     // ── Utilidades de generación C++ ──────────────────────────────────────
@@ -519,47 +707,54 @@ statement ::= decl:d
             {: RESULT = new Fragment(Fragment.STATEMENT, "return " + e + ";"); :}
             | RETURN SEMICOLON
             {: RESULT = new Fragment(Fragment.STATEMENT, "return;"); :}
-            | RETURN expression:e error
+            | RETURN:r expression:e error
             {:
-                recoverError("Falta ';' después de return");
+                saveErrorPosition(rleft, rright, "vonos");
+                recoverError("Falta FRENO después de vonos (return)");
                 RESULT = new Fragment(Fragment.STATEMENT, "return " + e + ";");
             :}
-            | BREAK SEMICOLON
+            | BREAK:b SEMICOLON
             {: RESULT = new Fragment(Fragment.STATEMENT, "break;"); :}
-            | BREAK error
+            | BREAK:b error
             {:
-                recoverError("Falta ';' después de break");
+                saveErrorPosition(bleft, bright, "cuaje");
+                recoverError("Falta FRENO después de cuaje (break)");
                 RESULT = new Fragment(Fragment.STATEMENT, "break;");
             :}
             | CONTINUE SEMICOLON
             {: RESULT = new Fragment(Fragment.STATEMENT, "continue;"); :}
-            | CONTINUE error
+            | CONTINUE:c error
             {:
-                recoverError("Falta ';' después de continue");
+                saveErrorPosition(cleft, cright, "chanin");
+                recoverError("Falta FRENO después de chanin (continue)");
                 RESULT = new Fragment(Fragment.STATEMENT, "continue;");
             :}
             | PRINT LEFT_PAREN expression:e RIGHT_PAREN SEMICOLON
             {: RESULT = new Fragment(Fragment.STATEMENT, "std::cout << " + e + " << std::endl;"); :}
-            | PRINT LEFT_PAREN expression:e RIGHT_PAREN error
+            | PRINT:p LEFT_PAREN expression:e RIGHT_PAREN error
             {:
-                recoverError("Falta ';' después de print");
+                saveErrorPosition(pleft, pright, "chotear");
+                recoverError("Falta FRENO después de chotear (print)");
                 RESULT = new Fragment(Fragment.STATEMENT, "std::cout << " + e + " << std::endl;");
             :}
-            | PRINT LEFT_PAREN error RIGHT_PAREN SEMICOLON
+            | PRINT:p LEFT_PAREN error RIGHT_PAREN SEMICOLON
             {:
-                recoverError("Expresión inválida en print");
+                saveErrorPosition(pleft, pright, "chotear");
+                recoverError("Expresión inválida en chotear (print)");
                 RESULT = new Fragment(Fragment.STATEMENT, "std::cout << \"\" << std::endl;");
             :}
             | expression:e SEMICOLON
             {: RESULT = new Fragment(Fragment.STATEMENT, e + ";"); :}
             | expression:e error
             {:
-                recoverError("Falta ';' al final de la expresión");
+                // eleft apunta al inicio de la expresión, que es la línea correcta
+                saveErrorPosition(eleft, eright, e.length() > 20 ? e.substring(0,20) : e);
+                recoverError("Falta FRENO al final de la expresión");
                 RESULT = new Fragment(Fragment.STATEMENT, e + ";");
             :}
             | error SEMICOLON
             {:
-                recoverError("Sentencia inválida");
+                recoverError("Sentencia inválida — token inesperado en esta posición");
                 RESULT = new Fragment(Fragment.STATEMENT, "// sentencia inválida");
             :}
             ;
@@ -587,7 +782,7 @@ block ::= block_open statement_list:s RIGHT_BRACE
         | block_open statement_list:s error:e
           {:
               exitBlock();
-              recoverError("Falta llave de cierre '}' para el bloque");
+              recoverErrorForced("Falta CUERPO (}) para cerrar el bloque");
               RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}";
           :}
         ;
@@ -612,8 +807,44 @@ decl ::= access_modifier:acc type:t IDENTIFIER:id SEMICOLON
        {: RESULT = buildVarDecl(null, t, id, null, false); :}
        | type:t IDENTIFIER:id ASSIGN expression:e SEMICOLON
        {: RESULT = buildVarDecl(null, t, id, e, false); :}
+       /*
+        * FIX posición: cuando falta FRENO al declarar, CUP ya consumió
+        * el primer token de la siguiente línea como lookahead.
+        * idleft/idright apuntan al IDENTIFIER de la línea real del error.
+        */
+       | type:t IDENTIFIER:id ASSIGN expression:e error
+       {:
+           saveErrorPosition(idleft, idright, id);
+           recoverError("Falta FRENO al declarar la variable '" + id + "'");
+           RESULT = buildVarDecl(null, t, id, e, false);
+       :}
+       | access_modifier:acc type:t IDENTIFIER:id ASSIGN expression:e error
+       {:
+           saveErrorPosition(idleft, idright, id);
+           recoverError("Falta FRENO al declarar la variable '" + id + "'");
+           RESULT = buildVarDecl(acc, t, id, e, false);
+       :}
+       /*
+        * FIX ERROR 1 duplicado: cuando falta todo (DAR y FRENO), el parser
+        * entra en pánico en 'type IDENTIFIER' y no llega a reducir la
+        * expresión. Esta producción captura ese caso directamente usando
+        * la posición del IDENTIFIER (línea real) y evita que 'error SEMICOLON'
+        * en statement genere un segundo error en la línea siguiente.
+        */
+       | type:t IDENTIFIER:id error
+       {:
+           saveErrorPosition(idleft, idright, id);
+           recoverError("Falta DAR (=) o FRENO al declarar la variable '" + id + "'");
+           RESULT = buildVarDecl(null, t, id, null, false);
+       :}
        | CONST type:t IDENTIFIER:id ASSIGN expression:e SEMICOLON
        {: RESULT = buildVarDecl(null, t, id, e, true); :}
+       | CONST type:t IDENTIFIER:id ASSIGN expression:e error
+       {:
+           saveErrorPosition(idleft, idright, id);
+           recoverError("Falta FRENO al declarar la constante '" + id + "'");
+           RESULT = buildVarDecl(null, t, id, e, true);
+       :}
        /* Funciones con tipo de retorno void */
        | access_modifier:acc VOID IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
        {: RESULT = new Fragment(Fragment.FUNCTION, buildFunction(acc, "void", id, p, b)); :}
@@ -643,7 +874,7 @@ decl_class ::= CLASS IDENTIFIER:id LEFT_BRACE class_member_list:members RIGHT_BR
              {: RESULT = new Fragment(Fragment.CLASS, "class " + id + " {\n" + joinClassMembers(members) + "};"); :}
              | CLASS IDENTIFIER:id LEFT_BRACE class_member_list:members error:e
              {:
-                 recoverError("Falta llave de cierre '}' en la clase '" + id + "'");
+                 recoverErrorForced("Falta CUERPO (}) para cerrar la banda (clase) '" + id + "'");
                  RESULT = new Fragment(Fragment.CLASS, "class " + id + " {\n" + joinClassMembers(members) + "};");
              :}
              ;
@@ -665,12 +896,12 @@ decl_constructors ::= IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
                     {: RESULT = buildConstructor(id, p, b); :}
                     | IDENTIFIER:id LEFT_PAREN error RIGHT_PAREN block:b
                     {:
-                        recoverError("Parámetros inválidos en constructor '" + id + "'");
+                        recoverError("Parámetros inválidos en el constructor '" + id + "'");
                         RESULT = buildConstructor(id, new ArrayList(), b);
                     :}
                     | IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN error:e
                     {:
-                        recoverError("Falta bloque '{...}' en el constructor '" + id + "'");
+                        recoverError("Falta ALMA..CUERPO ({...}) en el constructor '" + id + "'");
                         RESULT = buildConstructor(id, p, "{}");
                     :}
                     ;
@@ -683,7 +914,7 @@ new_expr ::= NEW IDENTIFIER:id LEFT_PAREN arg_list:args RIGHT_PAREN
            {: RESULT = "new " + id + "(" + argsToCpp(args) + ")"; :}
            | NEW IDENTIFIER:id LEFT_PAREN error RIGHT_PAREN
            {:
-               recoverError("Argumentos inválidos en creación de objeto");
+               recoverError("Argumentos inválidos en estrenar (new)");
                RESULT = "new " + id + "()";
            :}
            ;
@@ -748,51 +979,58 @@ if_stmt ::= IF LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk
           {: RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + thenBlk + " else " + elseBlk); :}
           | IF LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk ELSE if_stmt:elseIf
           {: RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + thenBlk + " else " + elseIf.code); :}
-          | IF LEFT_PAREN error RIGHT_PAREN block:b
+          | IF:i LEFT_PAREN error RIGHT_PAREN block:b
           {:
-              recoverError("Condición inválida en if");
+              saveErrorPosition(ileft, iright, "simon");
+              recoverError("Condición inválida en simon (if)");
               RESULT = new Fragment(Fragment.STATEMENT, "if (false) " + b);
           :}
-          | IF LEFT_PAREN expression:cond error block:b
+          | IF:i LEFT_PAREN expression:cond error block:b
           {:
-              recoverError("Falta ')' en la condición del if");
+              saveErrorPosition(ileft, iright, "simon");
+              recoverError("Falta RESPANDO ()) en la condición de simon (if)");
               RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + b);
           :}
           ;
 
 while_stmt ::= WHILE LEFT_PAREN expression:cond RIGHT_PAREN block:b
              {: RESULT = new Fragment(Fragment.STATEMENT, "while (" + cond + ") " + b); :}
-             | WHILE LEFT_PAREN error RIGHT_PAREN block:b
+             | WHILE:w LEFT_PAREN error RIGHT_PAREN block:b
              {:
-                 recoverError("Condición inválida en while");
+                 saveErrorPosition(wleft, wright, "seguile");
+                 recoverError("Condición inválida en seguile (while)");
                  RESULT = new Fragment(Fragment.STATEMENT, "while (false) " + b);
              :}
-             | WHILE LEFT_PAREN expression:cond error block:b
+             | WHILE:w LEFT_PAREN expression:cond error block:b
              {:
-                 recoverError("Falta ')' en la condición del while");
+                 saveErrorPosition(wleft, wright, "seguile");
+                 recoverError("Falta RESPANDO ()) en la condición de seguile (while)");
                  RESULT = new Fragment(Fragment.STATEMENT, "while (" + cond + ") " + b);
              :}
              ;
 
 do_while_stmt ::= DO block:b WHILE LEFT_PAREN expression:cond RIGHT_PAREN SEMICOLON
                 {: RESULT = new Fragment(Fragment.STATEMENT, "do " + b + " while (" + cond + ");"); :}
-                | DO block:b WHILE LEFT_PAREN expression:cond RIGHT_PAREN error:e
+                | DO block:b WHILE:w LEFT_PAREN expression:cond RIGHT_PAREN error:e
                 {:
-                    recoverError("Falta ';' al final del do-while");
+                    saveErrorPosition(wleft, wright, "seguile");
+                    recoverError("Falta FRENO al final de dale...seguile (do-while)");
                     RESULT = new Fragment(Fragment.STATEMENT, "do " + b + " while (" + cond + ");");
                 :}
                 ;
 
 for_stmt ::= FOR LEFT_PAREN for_init:init SEMICOLON expression:cond SEMICOLON for_update:update RIGHT_PAREN block:b
            {: RESULT = new Fragment(Fragment.STATEMENT, "for (" + init + "; " + cond + "; " + update + ") " + b); :}
-           | FOR LEFT_PAREN error RIGHT_PAREN block:b
+           | FOR:f LEFT_PAREN error RIGHT_PAREN block:b
            {:
-               recoverError("Estructura inválida en for");
+               saveErrorPosition(fleft, fright, "vuelta");
+               recoverError("Estructura inválida en vuelta (for)");
                RESULT = new Fragment(Fragment.STATEMENT, "for (;;) " + b);
            :}
-           | FOR LEFT_PAREN for_init:init SEMICOLON expression:cond SEMICOLON for_update:update error block:b
+           | FOR:f LEFT_PAREN for_init:init SEMICOLON expression:cond SEMICOLON for_update:update error block:b
            {:
-               recoverError("Falta ')' en la estructura del for");
+               saveErrorPosition(fleft, fright, "vuelta");
+               recoverError("Falta RESPANDO ()) en la estructura de vuelta (for)");
                RESULT = new Fragment(Fragment.STATEMENT, "for (" + init + "; " + cond + "; " + update + ") " + b);
            :}
            ;
@@ -813,14 +1051,16 @@ for_update ::= expression:e {: RESULT = e; :}
 
 switch_stmt ::= SWITCH LEFT_PAREN expression:expr RIGHT_PAREN LEFT_BRACE case_list:c RIGHT_BRACE
               {: RESULT = new Fragment(Fragment.STATEMENT, "switch (" + expr + ") {\n" + indent(join(c, "\n")) + "}"); :}
-              | SWITCH LEFT_PAREN error RIGHT_PAREN LEFT_BRACE case_list:c RIGHT_BRACE
+              | SWITCH:s LEFT_PAREN error RIGHT_PAREN LEFT_BRACE case_list:c RIGHT_BRACE
               {:
-                  recoverError("Expresión inválida en switch");
+                  saveErrorPosition(sleft, sright, "chiripa");
+                  recoverError("Expresión inválida en chiripa (switch)");
                   RESULT = new Fragment(Fragment.STATEMENT, "switch (0) {\n" + indent(join(c, "\n")) + "}");
               :}
-              | SWITCH LEFT_PAREN expression:expr error LEFT_BRACE case_list:c RIGHT_BRACE
+              | SWITCH:s LEFT_PAREN expression:expr error LEFT_BRACE case_list:c RIGHT_BRACE
               {:
-                  recoverError("Falta ')' en la expresión del switch");
+                  saveErrorPosition(sleft, sright, "chiripa");
+                  recoverError("Falta RESPANDO ()) en la expresión de chiripa (switch)");
                   RESULT = new Fragment(Fragment.STATEMENT, "switch (" + expr + ") {\n" + indent(join(c, "\n")) + "}");
               :}
               ;
@@ -831,17 +1071,14 @@ case_list ::= case_list:list case_clause:c
             {: RESULT = new ArrayList(); :}
             ;
 
-/*
- * FIX: eliminada la alternativa "CASE literal" porque literal ya es
- * subconjunto de expression, lo que generaba conflictos shift/reduce.
- */
 case_clause ::= CASE expression:e COLON statement_list:s
               {: RESULT = "case " + e + ":\n" + indent(joinFragmentsAsBody(s)); :}
               | DEFAULT COLON statement_list:s
               {: RESULT = "default:\n" + indent(joinFragmentsAsBody(s)); :}
-              | CASE error COLON statement_list:s
+              | CASE:c error COLON statement_list:s
               {:
-                  recoverError("Expresión inválida en case");
+                  saveErrorPosition(cleft, cright, "wasa");
+                  recoverError("Expresión inválida en wasa (case)");
                   RESULT = "case 0:\n" + indent(joinFragmentsAsBody(s));
               :}
               ;
@@ -872,12 +1109,12 @@ catch_clause ::= CATCH LEFT_PAREN param:p RIGHT_PAREN block:b
                {: RESULT = " catch (" + p.toCatchCpp() + ") " + b; :}
                | CATCH LEFT_PAREN error RIGHT_PAREN block:b
                {:
-                   recoverError("Parámetro inválido en catch");
+                   recoverError("Parámetro inválido en atrapalo (catch)");
                    RESULT = " catch (const std::exception& ex) " + b;
                :}
                | CATCH LEFT_PAREN param:p RIGHT_PAREN error:e
                {:
-                   recoverError("Falta bloque '{...}' en catch");
+                   recoverError("Falta ALMA..CUERPO ({...}) en atrapalo (catch)");
                    RESULT = " catch (" + p.toCatchCpp() + ") {}";
                :}
                ;
@@ -888,9 +1125,10 @@ catch_clause ::= CATCH LEFT_PAREN param:p RIGHT_PAREN block:b
 
 throw_stmt ::= THROW expression:e SEMICOLON
              {: RESULT = new Fragment(Fragment.STATEMENT, "throw " + e + ";"); :}
-             | THROW expression:e error
+             | THROW:t expression:e error
              {:
-                 recoverError("Falta ';' después de throw");
+                 saveErrorPosition(tleft, tright, "morongazo");
+                 recoverError("Falta FRENO después de morongazo (throw)");
                  RESULT = new Fragment(Fragment.STATEMENT, "throw " + e + ";");
              :}
              ;
@@ -979,7 +1217,7 @@ array_access ::= IDENTIFIER:id LEFT_BRACKET expression:index RIGHT_BRACKET
                {: RESULT = id + "[" + index + "]"; :}
                | IDENTIFIER:id LEFT_BRACKET error RIGHT_BRACKET
                {:
-                   recoverError("Índice inválido en acceso a arreglo");
+                   recoverError("Índice inválido entre CAJON..TAPA ([..]) en arreglo");
                    RESULT = id + "[0]";
                :}
                ;
@@ -1005,7 +1243,7 @@ primary ::= literal:l          {: RESULT = l; :}
           {: RESULT = "(" + e + ")"; :}
           | LEFT_PAREN expression:e error
           {:
-              recoverError("Falta ')' en la expresión agrupada");
+              recoverError("Falta RESPANDO ()) en la expresión agrupada");
               RESULT = "(" + e + ")";
           :}
           ;
