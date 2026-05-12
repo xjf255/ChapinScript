@@ -1411,6 +1411,9 @@ public class Parser extends java_cup.runtime.lr_parser {
 
 
 
+    /* ══════════════════════════════════════════════════════════════
+       CLASES DE DATOS
+       ══════════════════════════════════════════════════════════════ */
     public static class SyntaxError {
         public final String type;
         public final String message;
@@ -1434,24 +1437,24 @@ public class Parser extends java_cup.runtime.lr_parser {
                    ", cerca de '" + lexeme + "' />";
         }
 
-      public String getLexeme() {
-        return lexeme;
-      }
-
-      public int getColumn() {
-        return column;
-      }
-
-      public int getLine() {
-        return line;
+      public String getType() {
+        return type;
       }
 
       public String getMessage() {
         return message;
       }
 
-      public String getType() {
-        return type;
+      public int getLine() {
+        return line;
+      }
+
+      public int getColumn() {
+        return column;
+      }
+
+      public String getLexeme() {
+        return lexeme;
       }
     }
 
@@ -1460,7 +1463,6 @@ public class Parser extends java_cup.runtime.lr_parser {
         public static final int GLOBAL    = 2;
         public static final int FUNCTION  = 3;
         public static final int CLASS     = 4;
-        public static final int LOCAL     = 5;
 
         public final int    kind;
         public final String code;
@@ -1492,131 +1494,94 @@ public class Parser extends java_cup.runtime.lr_parser {
         }
     }
 
-    // ── Estado de contexto ────────────────────────────────────────────────
-    /** Profundidad de bloque: 0 = ámbito global, >0 = dentro de función/método */
+    /* ══════════════════════════════════════════════════════════════
+       ESTADO DE CONTEXTO
+       ══════════════════════════════════════════════════════════════ */
     private int blockDepth = 0;
-
     public void enterBlock() { blockDepth++; }
     public void exitBlock()  { if (blockDepth > 0) blockDepth--; }
     public boolean isLocalScope() { return blockDepth > 0; }
 
-    // ── Control de recuperación ───────────────────────────────────────────
-    /**
-     * Cuando CUP entra en modo pánico y luego se recupera mediante una
-     * producción con 'error', llama a syntax_error() Y después ejecuta
-     * la acción de la producción (que también llama addSyntaxError).
-     * Esto genera duplicados. La bandera justRecovered bloquea el segundo
-     * llamado automático de syntax_error() que ocurre POST-recuperación.
-     *
-     * Flujo sin bandera:
-     *   syntax_error()  → registra "Símbolo inesperado"   (1)
-     *   acción error    → registra "Falta ';' después de X" (2)  ← duplicado
-     *
-     * Flujo con bandera:
-     *   syntax_error()  → registra "Símbolo inesperado", activa bandera (1)
-     *   acción error    → registra "Falta ';' después de X"           (2) ✓
-     *   syntax_error()  → bandera activa → descarta, limpia bandera    (skip)
-     */
-    private boolean justRecovered = false;
-
-    /**
-     * Posición del token que disparó el error original, guardada ANTES
-     * de que CUP descarte tokens durante la recuperación de pánico.
-     * Permite reportar la posición real del error en vez de la del token
-     * de sincronización (que puede estar varias líneas después).
-     */
-    private int errorLine   = -1;
-    private int errorColumn = -1;
-    private String errorLexeme = null;
-
-    // ── Errores sintácticos ───────────────────────────────────────────────
+    /* ══════════════════════════════════════════════════════════════
+       TABLA DE ERRORES
+       ══════════════════════════════════════════════════════════════ */
     private final List<SyntaxError> syntaxErrors = new ArrayList<>();
-
     public List<SyntaxError> getSyntaxErrors() { return syntaxErrors; }
 
-    /**
-     * Normaliza line/column negativos (que CUP produce cuando no tiene
-     * información de posición) a 1,1 para que el reporte no muestre L0/C0.
-     */
-    private int normalizeLine(int line)     { return line   < 1 ? 1 : line; }
-    private int normalizeColumn(int column) { return column < 1 ? 1 : column; }
+    /* ══════════════════════════════════════════════════════════════
+       ESTADO DE RECUPERACIÓN
+       ══════════════════════════════════════════════════════════════
 
-    private void addSyntaxError(Symbol token, String message) {
-        int line, column;
-        String lexeme;
+       El ciclo de vida de un error en CUP es:
+         1. syntax_error(tok)  → CUP detecta que tok no encaja
+         2. CUP descarta tokens hasta encontrar un token de sincronización
+         3. La acción de la producción 'error' se ejecuta
 
-        if (token != null) {
-            lexeme = resolveLexeme(token);
-            line   = normalizeLine(token.left);
-            column = normalizeColumn(token.right);
-        } else {
-            lexeme = "desconocido";
-            line   = 1;
-            column = 1;
-        }
+       Problema A — DUPLICADO:
+         syntax_error() registra "Símbolo inesperado" (1)
+         La acción registra "Falta FRENO en X"        (2)  ← duplicado
 
-        addSyntaxError(line, column, lexeme, message);
-    }
+       Problema B — POSICIÓN INCORRECTA:
+         En el paso 2, CUP ya consumió tokens de líneas siguientes,
+         por lo que eleft/eright apuntan al token de sincronización,
+         no al error real.
 
-    private void addSyntaxError(int line, int column, String lexeme, String message) {
-        line   = normalizeLine(line);
-        column = normalizeColumn(column);
+       Problema C — CASCADA:
+         Un error dentro de un bloque (break sin FRENO) dispara
+         también un error en el bloque contenedor (for/while).
 
-        if (lexeme == null || lexeme.isBlank()) lexeme = "desconocido";
+       Solución:
+         - justRecovered: bloquea el syntax_error() post-recuperación
+         - errorLine/Col/Lexeme: guarda posición ANTES del descarte
+         - pendingMessage: el mensaje de syntax_error() se guarda pero
+           NO se registra todavía; se registra solo si recoverError()
+           no viene a reemplazarlo con un mensaje más preciso.
+         - lastRecoveredLine: suprime cascadas cercanas
+    ══════════════════════════════════════════════════════════════ */
+    private boolean justRecovered    = false;
+    private int     errorLine        = -1;
+    private int     errorColumn      = -1;
+    private String  errorLexeme      = null;
+    private String  pendingMessage   = null;   // mensaje de syntax_error() en espera
+    private int     lastRecoveredLine = -1;    // última línea donde se registró un error
 
-        // Deduplicación: evitar el mismo error exacto consecutivo.
-        if (!syntaxErrors.isEmpty()) {
-            SyntaxError last = syntaxErrors.get(syntaxErrors.size() - 1);
-            if (last.line == line && last.message.equals(message)) {
-                return;
-            }
-        }
+    private int normalizeLine(int l)   { return l < 1 ? 1 : l; }
+    private int normalizeCol(int c)    { return c < 1 ? 1 : c; }
 
-        syntaxErrors.add(new SyntaxError("Sintáctico", message, line, column, lexeme));
-    }
-
-    /**
-     * Mapa de sym (código interno de CUP) al lexema ChapinScript real.
-     * Necesario porque los terminales sin valor semántico (palabras reservadas,
-     * operadores, delimitadores) llegan al parser con token.value == null.
-     * Sin este mapa el lexema reportado sería "desconocido" o el del siguiente
-     * token de sincronización.
-     */
-    private String symToChapinLexeme(int symCode) {
-        switch (symCode) {
-            // Palabras reservadas
-            case sym.PRINT:     return "chotear";
-            case sym.IF:        return "simon";
-            case sym.ELSE:      return "chapus";
-            case sym.SWITCH:    return "chiripa";
-            case sym.CASE:      return "wasa";
-            case sym.DEFAULT:   return "porsiacaso";
-            case sym.FOR:       return "vuelta";
-            case sym.WHILE:     return "seguile";
-            case sym.DO:        return "dale";
-            case sym.BREAK:     return "cuaje";
-            case sym.CONTINUE:  return "chanin";
-            case sym.RETURN:    return "vonos";
-            case sym.INT:       return "cabal";
-            case sym.FLOAT:     return "pisto";
-            case sym.DOUBLE:    return "pistazo";
-            case sym.CHAR:      return "cachito";
-            case sym.BOOL:      return "casaca";
-            case sym.VOID:      return "nimais";
-            case sym.STRING:    return "chisme";
-            case sym.CONST:     return "fijo";
-            case sym.CLASS:     return "banda";
-            case sym.THIS:      return "vos";
-            case sym.TRY:       return "calale";
-            case sym.CATCH:     return "atrapalo";
-            case sym.THROW:     return "morongazo";
-            case sym.PUBLIC:    return "barrio";
-            case sym.PRIVATE:   return "caquero";
-            case sym.TRUE:      return "deplano";
-            case sym.FALSE:     return "nel";
-            case sym.NULL:      return "inutil";
-            case sym.NEW:       return "estrenar";
-            // Operadores compuestos
+    /* ── Mapa sym → lexema ChapinScript ─────────────────────────── */
+    private String symToLexeme(int s) {
+        switch (s) {
+            case sym.PRINT:           return "chotear";
+            case sym.IF:              return "simon";
+            case sym.ELSE:            return "chapus";
+            case sym.SWITCH:          return "chiripa";
+            case sym.CASE:            return "wasa";
+            case sym.DEFAULT:         return "porsiacaso";
+            case sym.FOR:             return "vuelta";
+            case sym.WHILE:           return "seguile";
+            case sym.DO:              return "dale";
+            case sym.BREAK:           return "cuaje";
+            case sym.CONTINUE:        return "chanin";
+            case sym.RETURN:          return "vonos";
+            case sym.INT:             return "cabal";
+            case sym.FLOAT:           return "pisto";
+            case sym.DOUBLE:          return "pistazo";
+            case sym.CHAR:            return "cachito";
+            case sym.BOOL:            return "casaca";
+            case sym.VOID:            return "nimais";
+            case sym.STRING:          return "chisme";
+            case sym.CONST:           return "fijo";
+            case sym.CLASS:           return "banda";
+            case sym.THIS:            return "vos";
+            case sym.TRY:             return "calale";
+            case sym.CATCH:           return "atrapalo";
+            case sym.THROW:           return "morongazo";
+            case sym.PUBLIC:          return "barrio";
+            case sym.PRIVATE:         return "caquero";
+            case sym.TRUE:            return "deplano";
+            case sym.FALSE:           return "nel";
+            case sym.NULL:            return "inutil";
+            case sym.NEW:             return "estrenar";
             case sym.EQUALS:          return "GEMELOS";
             case sym.NOT_EQUALS:      return "DIVORCIO";
             case sym.LESS_EQUAL:      return "BASE";
@@ -1630,181 +1595,259 @@ public class Parser extends java_cup.runtime.lr_parser {
             case sym.MULTIPLY_ASSIGN: return "ESTRELLA_DAR";
             case sym.DIVIDE_ASSIGN:   return "RAMPA_DAR";
             case sym.MOD_ASSIGN:      return "SOBRA_DAR";
-            // Operadores simples
-            case sym.ASSIGN:        return "DAR";
-            case sym.LESS_THAN:     return "PICO";
-            case sym.GREATER_THAN:  return "BOCA";
-            case sym.PLUS:          return "CRUZ";
-            case sym.MINUS:         return "RAYA";
-            case sym.MULTIPLY:      return "ESTRELLA";
-            case sym.DIVIDE:        return "RAMPA";
-            case sym.MOD:           return "SOBRA";
-            case sym.NOT:           return "GRITO";
-            // Delimitadores
-            case sym.SEMICOLON:     return "FRENO";
-            case sym.COMMA:         return "SEMILLA";
-            case sym.DOT:           return "ATOMO";
-            case sym.QUESTION:      return "DUDA";
-            case sym.COLON:         return "OJOS";
-            case sym.LEFT_PAREN:    return "ABRAZO";
-            case sym.RIGHT_PAREN:   return "RESPANDO";
-            case sym.LEFT_BRACE:    return "ALMA";
-            case sym.RIGHT_BRACE:   return "CUERPO";
-            case sym.LEFT_BRACKET:  return "CAJON";
-            case sym.RIGHT_BRACKET: return "TAPA";
-            // Especiales
-            case sym.EOF:           return "EOF";
-            default:                return null;   // tiene value semántico propio
+            case sym.ASSIGN:          return "DAR";
+            case sym.LESS_THAN:       return "PICO";
+            case sym.GREATER_THAN:    return "BOCA";
+            case sym.PLUS:            return "CRUZ";
+            case sym.MINUS:           return "RAYA";
+            case sym.MULTIPLY:        return "ESTRELLA";
+            case sym.DIVIDE:          return "RAMPA";
+            case sym.MOD:             return "SOBRA";
+            case sym.NOT:             return "GRITO";
+            case sym.SEMICOLON:       return "FRENO";
+            case sym.COMMA:           return "SEMILLA";
+            case sym.DOT:             return "ATOMO";
+            case sym.QUESTION:        return "DUDA";
+            case sym.COLON:           return "OJOS";
+            case sym.LEFT_PAREN:      return "ABRAZO";
+            case sym.RIGHT_PAREN:     return "RESPANDO";
+            case sym.LEFT_BRACE:      return "ALMA";
+            case sym.RIGHT_BRACE:     return "CUERPO";
+            case sym.LEFT_BRACKET:    return "CAJON";
+            case sym.RIGHT_BRACKET:   return "TAPA";
+            case sym.EOF:             return "EOF";
+            default:                  return null;
         }
     }
 
-    /**
-     * Resuelve el lexema legible de un Symbol:
-     *  1. Si el sym tiene un lexema ChapinScript conocido → lo usa.
-     *  2. Si tiene value semántico (IDENTIFIER, literales) → usa value.toString().
-     *  3. Fallback → "desconocido".
-     */
     private String resolveLexeme(Symbol s) {
         if (s == null) return "desconocido";
-        String mapped = symToChapinLexeme(s.sym);
-        if (mapped != null) return mapped;
+        String m = symToLexeme(s.sym);
+        if (m != null) return m;
         if (s.value != null && !s.value.toString().isBlank()) return s.value.toString();
         return "desconocido";
     }
 
-    /**
-     * Guarda la posición y lexema del token que causó el error, ANTES de que
-     * CUP descarte tokens durante la recuperación de pánico.
-     * Usa resolveLexeme() para obtener el nombre ChapinScript correcto.
-     */
-    private void saveErrorPosition(Symbol cur_token) {
-        if (cur_token != null) {
-            errorLine   = normalizeLine(cur_token.left);
-            errorColumn = normalizeColumn(cur_token.right);
-            errorLexeme = resolveLexeme(cur_token);
+    /* ── Guardar posición del error antes del descarte ─────────── */
+    private void savePos(Symbol t) {
+        if (t != null) {
+            errorLine   = normalizeLine(t.left);
+            errorColumn = normalizeCol(t.right);
+            errorLexeme = resolveLexeme(t);
         } else {
-            errorLine   = 1;
-            errorColumn = 1;
-            errorLexeme = "desconocido";
+            errorLine = 1; errorColumn = 1; errorLexeme = "desconocido";
         }
     }
 
     /**
-     * Versión de saveErrorPosition que acepta posición y lexema explícitos.
-     * Usar en producciones donde el token de contexto (ej. PRINT, IF, WHILE)
-     * ya fue consumido y su posición está disponible como variable :p, :w, etc.
-     * Esto garantiza que la bitácora diga "cerca de 'chotear'" y no el token
-     * que vino después.
+     * Versión con posición explícita del token de contexto (IF, WHILE, etc.)
+     * Solo sobreescribe la posición guardada si no hay una posición válida
+     * del token real que falló — syntax_error() ya la habrá guardado antes.
+     * Siempre actualiza el lexema para que diga "simon", "seguile", etc.
+     * en lugar del token de sincronización.
      */
-    private void saveErrorPosition(int line, int column, String lexeme) {
-        errorLine   = normalizeLine(line);
-        errorColumn = normalizeColumn(column);
+    private void savePos(int line, int col, String lexeme) {
+        // Siempre usar el lexema del token de contexto (más legible)
         errorLexeme = (lexeme != null && !lexeme.isBlank()) ? lexeme : "desconocido";
+        // Línea y columna: preferir la del error real guardada por syntax_error()
+        // Solo usar la del token de contexto si no hay nada guardado
+        if (errorLine < 1) {
+            errorLine   = normalizeLine(line);
+            errorColumn = normalizeCol(col);
+        }
+        // Si ya tenemos posición real del error (guardada en syntax_error),
+        // la mantenemos — es más precisa que la del token de contexto.
     }
 
-    @Override
-    public void syntax_error(Symbol cur_token) {
-        // FIX: si acabamos de recuperarnos, limpiamos la bandera pero
-        // GUARDAMOS la posición del nuevo token para que el próximo
-        // recoverError() la use correctamente (errores encadenados).
-        if (justRecovered) {
-            justRecovered = false;
-            saveErrorPosition(cur_token);
+    /* ── Registro real de errores ───────────────────────────────── */
+    private void doRegister(int line, int col, String lexeme, String message) {
+        doRegister(line, col, lexeme, message, false);
+    }
+
+    private void doRegister(int line, int col, String lexeme, String message, boolean force) {
+        line   = normalizeLine(line);
+        col    = normalizeCol(col);
+        if (lexeme == null || lexeme.isBlank()) lexeme = "desconocido";
+
+        // Deduplicación exacta consecutiva
+        if (!syntaxErrors.isEmpty()) {
+            SyntaxError last = syntaxErrors.get(syntaxErrors.size() - 1);
+            if (last.line == line && last.message.equals(message)) return;
+        }
+
+        // Supresión de cascada — solo si no es forzado
+        if (!force && lastRecoveredLine > 0 && Math.abs(line - lastRecoveredLine) <= 2) {
             return;
         }
 
-        // Guardar la posición del token que causó el error AHORA, antes de
-        // que CUP empiece a descartar tokens durante la recuperación de pánico.
-        saveErrorPosition(cur_token);
+        syntaxErrors.add(new SyntaxError("Sintáctico", message, line, col, lexeme));
+    }
 
-        String message = "Símbolo inesperado";
-        if (cur_token != null) {
+    /* ── addSyntaxError (usado internamente y por report_error) ── */
+    private void addSyntaxError(Symbol token, String message) {
+        if (token != null) {
+            doRegister(normalizeLine(token.left), normalizeCol(token.right),
+                       resolveLexeme(token), message);
+        } else {
+            doRegister(1, 1, "desconocido", message);
+        }
+    }
+
+    private void addSyntaxError(int line, int col, String lexeme, String message) {
+        doRegister(line, col, lexeme, message);
+    }
+
+    /* ── syntax_error: punto de entrada de CUP ─────────────────── */
+    @Override
+    public void syntax_error(Symbol cur_token) {
+        // POST-RECUPERACIÓN: CUP llama syntax_error() de nuevo con el
+        // token de continuación. Lo descartamos — recoverError() ya
+        // registró el mensaje preciso. Actualizamos la posición guardada
+        // por si hay errores encadenados.
+        if (justRecovered) {
+            justRecovered = false;
+            savePos(cur_token);
+            return;
+        }
+
+        // Guardar posición ANTES del descarte de pánico
+        savePos(cur_token);
+
+        // Construir mensaje con nombres ChapinScript
+        String message;
+        if (cur_token == null) {
+            message = "Símbolo inesperado";
+        } else {
             switch (cur_token.sym) {
-                // Delimitadores
-                case sym.SEMICOLON:     message = "FRENO inesperado";                           break;
-                case sym.RIGHT_BRACE:   message = "CUERPO (}) inesperado";                      break;
-                case sym.RIGHT_PAREN:   message = "RESPANDO ()) inesperado";                    break;
-                case sym.LEFT_BRACE:    message = "ALMA ({) inesperada";                        break;
-                case sym.LEFT_PAREN:    message = "ABRAZO (() inesperado";                      break;
-                case sym.LEFT_BRACKET:  message = "CAJON ([) inesperado";                       break;
-                case sym.RIGHT_BRACKET: message = "TAPA (]) inesperado";                        break;
-                case sym.COMMA:         message = "SEMILLA (,) inesperada";                     break;
-                case sym.DOT:           message = "ATOMO (.) inesperado";                       break;
-                case sym.COLON:         message = "OJOS (:) inesperado";                        break;
-                // Palabras reservadas de control
-                case sym.ELSE:          message = "chapus (else) sin simon (if) válido previo"; break;
-                case sym.CASE:          message = "wasa (case) fuera de un chiripa (switch)";   break;
-                case sym.DEFAULT:       message = "porsiacaso fuera de un chiripa (switch)";    break;
-                case sym.IF:            message = "simon (if) inesperado";                      break;
-                case sym.WHILE:         message = "seguile (while) inesperado";                 break;
-                case sym.FOR:           message = "vuelta (for) inesperado";                    break;
-                case sym.DO:            message = "dale (do) inesperado";                       break;
-                case sym.SWITCH:        message = "chiripa (switch) inesperado";                break;
-                case sym.BREAK:         message = "cuaje (break) inesperado";                   break;
-                case sym.CONTINUE:      message = "chanin (continue) inesperado";               break;
-                case sym.RETURN:        message = "vonos (return) inesperado";                  break;
-                case sym.TRY:           message = "calale (try) inesperado";                    break;
-                case sym.CATCH:         message = "atrapalo (catch) inesperado";                break;
-                case sym.THROW:         message = "morongazo (throw) inesperado";               break;
-                case sym.CLASS:         message = "banda (class) inesperado";                   break;
-                case sym.NEW:           message = "estrenar (new) inesperado";                  break;
-                // Tipos
-                case sym.INT:           message = "cabal (int) inesperado";                     break;
-                case sym.FLOAT:         message = "pisto (float) inesperado";                   break;
-                case sym.DOUBLE:        message = "pistazo (double) inesperado";                break;
-                case sym.CHAR:          message = "cachito (char) inesperado";                  break;
-                case sym.BOOL:          message = "casaca (bool) inesperado";                   break;
-                case sym.STRING:        message = "chisme (string) inesperado";                 break;
-                case sym.VOID:          message = "nimais (void) inesperado";                   break;
-                case sym.CONST:         message = "fijo (const) inesperado";                    break;
-                // Operadores
-                case sym.ASSIGN:        message = "DAR (=) inesperado";                         break;
-                case sym.PLUS:          message = "CRUZ (+) inesperado";                        break;
-                case sym.MINUS:         message = "RAYA (-) inesperado";                        break;
-                case sym.MULTIPLY:      message = "ESTRELLA (*) inesperado";                    break;
-                case sym.DIVIDE:        message = "RAMPA (/) inesperado";                       break;
-                case sym.MOD:           message = "SOBRA (%) inesperado";                       break;
-                case sym.NOT:           message = "GRITO (!) inesperado";                       break;
-                case sym.EQUALS:        message = "GEMELOS (==) inesperado";                    break;
-                case sym.NOT_EQUALS:    message = "DIVORCIO (!=) inesperado";                   break;
-                case sym.LESS_THAN:     message = "PICO (<) inesperado";                        break;
-                case sym.GREATER_THAN:  message = "BOCA (>) inesperado";                        break;
-                case sym.LESS_EQUAL:    message = "BASE (<=) inesperado";                       break;
-                case sym.GREATER_EQUAL: message = "TECHO (>=) inesperado";                      break;
-                case sym.AND:           message = "CADENA (&&) inesperado";                     break;
-                case sym.OR:            message = "VALLAS (||) inesperado";                     break;
-                case sym.INCREMENT:     message = "CRUZ_CRUZ (++) inesperado";                  break;
-                case sym.DECREMENT:     message = "RAYA_RAYA (--) inesperado";                  break;
-                case sym.PLUS_ASSIGN:   message = "CRUZ_DAR (+=) inesperado";                   break;
-                case sym.MINUS_ASSIGN:  message = "RAYA_DAR (-=) inesperado";                   break;
-                case sym.MULTIPLY_ASSIGN: message = "ESTRELLA_DAR (*=) inesperado";             break;
-                case sym.DIVIDE_ASSIGN: message = "RAMPA_DAR (/=) inesperado";                  break;
-                case sym.MOD_ASSIGN:    message = "SOBRA_DAR (%=) inesperado";                  break;
-                // EOF
-                case sym.EOF:           message = "Fin de archivo inesperado";                  break;
-                default:                message = "Símbolo inesperado";                         break;
+                case sym.SEMICOLON:       message = "FRENO inesperado";                                    break;
+                case sym.RIGHT_BRACE:     message = "CUERPO (}) inesperado";                               break;
+                case sym.RIGHT_PAREN:     message = "RESPANDO ()) inesperado";                             break;
+                case sym.LEFT_BRACE:      message = "ALMA ({) inesperada";                                 break;
+                case sym.LEFT_PAREN:      message = "ABRAZO (() inesperado";                               break;
+                case sym.LEFT_BRACKET:    message = "CAJON ([) inesperado";                                break;
+                case sym.RIGHT_BRACKET:   message = "TAPA (]) inesperado";                                 break;
+                case sym.COMMA:           message = "SEMILLA (,) inesperada";                              break;
+                case sym.DOT:             message = "ATOMO (.) inesperado";                                break;
+                case sym.COLON:           message = "OJOS (:) inesperado";                                 break;
+                case sym.ELSE:            message = "chapus (else) sin simon (if) válido previo";          break;
+                case sym.CASE:            message = "wasa (case) fuera de un chiripa (switch)";            break;
+                case sym.DEFAULT:         message = "porsiacaso fuera de un chiripa (switch)";             break;
+                case sym.IF:              message = "simon (if) inesperado";                               break;
+                case sym.WHILE:           message = "seguile (while) inesperado";                          break;
+                case sym.FOR:             message = "vuelta (for) inesperado";                             break;
+                case sym.DO:              message = "dale (do) inesperado";                                break;
+                case sym.SWITCH:          message = "chiripa (switch) inesperado";                         break;
+                case sym.BREAK:           message = "cuaje (break) inesperado";                            break;
+                case sym.CONTINUE:        message = "chanin (continue) inesperado";                        break;
+                case sym.RETURN:          message = "vonos (return) inesperado";                           break;
+                case sym.TRY:             message = "calale (try) inesperado";                             break;
+                case sym.CATCH:           message = "atrapalo (catch) inesperado";                         break;
+                case sym.THROW:           message = "morongazo (throw) inesperado";                        break;
+                case sym.CLASS:           message = "banda (class) inesperado";                            break;
+                case sym.NEW:             message = "estrenar (new) inesperado";                           break;
+                case sym.INT:             message = "cabal (int) inesperado";                              break;
+                case sym.FLOAT:           message = "pisto (float) inesperado";                            break;
+                case sym.DOUBLE:          message = "pistazo (double) inesperado";                         break;
+                case sym.CHAR:            message = "cachito (char) inesperado";                           break;
+                case sym.BOOL:            message = "casaca (bool) inesperado";                            break;
+                case sym.STRING:          message = "chisme (string) inesperado";                          break;
+                case sym.VOID:            message = "nimais (void) inesperado";                            break;
+                case sym.CONST:           message = "fijo (const) inesperado";                             break;
+                case sym.ASSIGN:          message = "DAR (=) inesperado";                                  break;
+                case sym.PLUS:            message = "CRUZ (+) inesperado";                                 break;
+                case sym.MINUS:           message = "RAYA (-) inesperado";                                 break;
+                case sym.MULTIPLY:        message = "ESTRELLA (*) inesperado";                             break;
+                case sym.DIVIDE:          message = "RAMPA (/) inesperado";                                break;
+                case sym.MOD:             message = "SOBRA (%) inesperado";                                break;
+                case sym.NOT:             message = "GRITO (!) inesperado";                                break;
+                case sym.EQUALS:          message = "GEMELOS (==) inesperado";                             break;
+                case sym.NOT_EQUALS:      message = "DIVORCIO (!=) inesperado";                            break;
+                case sym.LESS_THAN:       message = "PICO (<) inesperado";                                 break;
+                case sym.GREATER_THAN:    message = "BOCA (>) inesperado";                                 break;
+                case sym.LESS_EQUAL:      message = "BASE (<=) inesperado";                                break;
+                case sym.GREATER_EQUAL:   message = "TECHO (>=) inesperado";                               break;
+                case sym.AND:             message = "CADENA (&&) inesperado";                              break;
+                case sym.OR:              message = "VALLAS (||) inesperado";                              break;
+                case sym.INCREMENT:       message = "CRUZ_CRUZ (++) inesperado";                           break;
+                case sym.DECREMENT:       message = "RAYA_RAYA (--) inesperado";                           break;
+                case sym.PLUS_ASSIGN:     message = "CRUZ_DAR (+=) inesperado";                            break;
+                case sym.MINUS_ASSIGN:    message = "RAYA_DAR (-=) inesperado";                            break;
+                case sym.MULTIPLY_ASSIGN: message = "ESTRELLA_DAR (*=) inesperado";                        break;
+                case sym.DIVIDE_ASSIGN:   message = "RAMPA_DAR (/=) inesperado";                           break;
+                case sym.MOD_ASSIGN:      message = "SOBRA_DAR (%=) inesperado";                           break;
+                case sym.EOF:             message = "Fin de archivo inesperado";                           break;
+                default:                  message = "Símbolo inesperado";                                  break;
             }
         }
 
-        addSyntaxError(errorLine, errorColumn, errorLexeme, message);
+        // Guardar el mensaje como PENDIENTE — no registrar todavía.
+        // recoverError() lo reemplazará con un mensaje más preciso.
+        // Si no viene ningún recoverError() (no hay producción 'error'
+        // que lo capture), flushPending() lo registrará tal cual.
+        pendingMessage = message;
+    }
+
+    /* ── Vuelca el mensaje pendiente si nadie lo reemplazó ──────── */
+    private void flushPending() {
+        if (pendingMessage != null) {
+            doRegister(errorLine > 0 ? errorLine : 1,
+                       errorColumn > 0 ? errorColumn : 1,
+                       errorLexeme != null ? errorLexeme : "desconocido",
+                       pendingMessage);
+            pendingMessage = null;
+        }
+    }
+
+    /* ── recoverError: llamado desde las acciones 'error' ───────── */
+    private void recoverError(String message) {
+        // Descartar el mensaje pendiente de syntax_error() — lo
+        // reemplazamos con el mensaje preciso de la producción.
+        pendingMessage = null;
+
+        int    line   = errorLine   > 0 ? errorLine   : 1;
+        int    column = errorColumn > 0 ? errorColumn : 1;
+        String lexeme = errorLexeme != null ? errorLexeme : "desconocido";
+
+        // Solo registrar si no es cascada de un error cercano
+        if (lastRecoveredLine < 0 || Math.abs(line - lastRecoveredLine) > 2) {
+            doRegister(line, column, lexeme, message);
+            lastRecoveredLine = line;
+        }
+
+        justRecovered = true;
+        errorLine = -1; errorColumn = -1; errorLexeme = null;
+    }
+
+    /* ── recoverErrorForced: para errores de nivel alto ─────────── */
+    // Clase sin cerrar, bloque sin cerrar, EOF — nunca se suprimen.
+    private void recoverErrorForced(String message) {
+        pendingMessage = null;
+        int    line   = errorLine   > 0 ? errorLine   : 1;
+        int    column = errorColumn > 0 ? errorColumn : 1;
+        String lexeme = errorLexeme != null ? errorLexeme : "desconocido";
+        // force=true: nunca se suprime por cascada — bloque/clase sin cerrar
+        // siempre deben aparecer independientemente de errores cercanos
+        doRegister(line, column, lexeme, message, true);
+        lastRecoveredLine = line;
+        justRecovered = true;
+        errorLine = -1; errorColumn = -1; errorLexeme = null;
     }
 
     @Override
     public void unrecovered_syntax_error(Symbol cur_token) throws Exception {
-        String lex  = (errorLexeme != null) ? errorLexeme : "EOF";
-        int    line = (errorLine   > 0)     ? errorLine   : normalizeLine(cur_token != null ? cur_token.left  : 1);
-        int    col  = (errorColumn > 0)     ? errorColumn : normalizeColumn(cur_token != null ? cur_token.right : 1);
-        addSyntaxError(line, col, lex, "Error sintáctico no recuperable");
+        flushPending();
+        String lex  = errorLexeme != null ? errorLexeme : resolveLexeme(cur_token);
+        int    line = errorLine > 0 ? errorLine : normalizeLine(cur_token != null ? cur_token.left  : 1);
+        int    col  = errorColumn > 0 ? errorColumn : normalizeCol(cur_token != null ? cur_token.right : 1);
+        lastRecoveredLine = -1;
+        doRegister(line, col, lex, "Error sintáctico no recuperable", true);
         throw new Exception("Error sintáctico no recuperable");
     }
 
     @Override
     public void report_error(String message, Object info) {
-        if (info instanceof Symbol) {
-            addSyntaxError((Symbol) info, message);
-        } else {
-            addSyntaxError(1, 1, "desconocido", message);
-        }
+        if (info instanceof Symbol) addSyntaxError((Symbol) info, message);
+        else addSyntaxError(1, 1, "desconocido", message);
     }
 
     @Override
@@ -1813,60 +1856,9 @@ public class Parser extends java_cup.runtime.lr_parser {
         throw new Exception(message);
     }
 
-    /**
-     * Llamar desde las acciones de las producciones 'error' del grammar.
-     *
-     * Usa la posición guardada en errorLine/errorColumn (posición real del
-     * error original) en lugar de eleft/eright (posición del token de
-     * sincronización, que puede estar lejos).
-     * Activa justRecovered para que el siguiente syntax_error() automático
-     * de CUP sea descartado.
-     *
-     * Cascada: cuando break/continue sin FRENO disparan también un error
-     * en el for que los contiene, el segundo error ocurre en la misma
-     * línea del for (línea del token vuelta). Lo suprimimos comparando
-     * con lastRecoveredLine: si ya reportamos un error de recuperación
-     * muy cercano (dentro de ±2 líneas), el nuevo es cascada y se ignora.
-     */
-    private int lastRecoveredLine = -1;
-
-    private void recoverError(String message) {
-        int    line   = (errorLine   > 0) ? errorLine   : 1;
-        int    column = (errorColumn > 0) ? errorColumn : 1;
-        String lexeme = (errorLexeme != null && !errorLexeme.isBlank())
-                        ? errorLexeme : "desconocido";
-
-        // Suprimir errores en cascada: si ya registramos un error de
-        // recuperación muy cercano en líneas y el nuevo tiene lexema
-        // diferente (no es duplicado exacto), es probable cascada.
-        // Se usa un margen de 5 líneas para cubrir bloques anidados.
-        boolean esCascada = (lastRecoveredLine > 0)
-                         && (Math.abs(line - lastRecoveredLine) <= 5)
-                         && !syntaxErrors.isEmpty()
-                         && !syntaxErrors.get(syntaxErrors.size()-1).message.equals(message);
-
-        if (!esCascada) {
-            addSyntaxError(line, column, lexeme, message);
-            lastRecoveredLine = line;
-        }
-
-        justRecovered = true;
-        errorLine   = -1;
-        errorColumn = -1;
-        errorLexeme = null;
-    }
-
-    /**
-     * Versión que fuerza el registro ignorando la supresión de cascada.
-     * Usar para errores de nivel superior (clase sin cerrar, EOF, etc.)
-     * donde la cascada no aplica.
-     */
-    private void recoverErrorForced(String message) {
-        lastRecoveredLine = -1;   // resetear para que no suprima este
-        recoverError(message);
-    }
-
-    // ── Utilidades de generación C++ ──────────────────────────────────────
+    /* ══════════════════════════════════════════════════════════════
+       UTILIDADES DE GENERACIÓN C++
+       ══════════════════════════════════════════════════════════════ */
     private String cppType(String t) {
         if (t == null) return "";
         if ("string".equals(t)) return "std::string";
@@ -1888,7 +1880,7 @@ public class Parser extends java_cup.runtime.lr_parser {
         StringBuilder sb = new StringBuilder();
         for (String line : lines) {
             if (line.isBlank()) sb.append("\n");
-            else                sb.append("    ").append(line).append("\n");
+            else sb.append("    ").append(line).append("\n");
         }
         return sb.toString();
     }
@@ -1935,69 +1927,47 @@ public class Parser extends java_cup.runtime.lr_parser {
         }
 
         StringBuilder out = new StringBuilder();
-        out.append("#include <iostream>\n");
-        out.append("#include <string>\n");
-        out.append("#include <stdexcept>\n\n");
+        out.append("#include <iostream>\n#include <string>\n#include <stdexcept>\n\n");
         out.append("using namespace std;\n\n");
-
         if (globals.length()   > 0) out.append(globals).append("\n");
         if (classes.length()   > 0) out.append(classes);
         if (functions.length() > 0) out.append(functions);
-
-        out.append("int main() {\n");
-        out.append(indent(mainBody.toString()));
-        out.append("    return 0;\n");
-        out.append("}\n");
-
+        out.append("int main() {\n").append(indent(mainBody.toString()))
+           .append("    return 0;\n}\n");
         return out.toString();
     }
 
     private String paramsToCpp(List list) {
         List<String> parts = new ArrayList<>();
-        for (Object obj : list) {
-            ParamInfo p = (ParamInfo) obj;
-            parts.add(p.toCpp());
-        }
+        for (Object obj : list) parts.add(((ParamInfo) obj).toCpp());
         return join(parts, ", ");
     }
 
     private String argsToCpp(List list) { return join(list, ", "); }
 
-    /**
-     * Construye una declaración de variable.
-     * El Fragment resultante es LOCAL si estamos dentro de un bloque,
-     * GLOBAL en otro caso.
-     */
     private Fragment buildVarDecl(String acc, String type, String id, String expr, boolean isConst) {
         String base = (isConst ? "const " : "") + cppType(type) + " " + id;
         if (expr != null) base += " = " + expr;
         base += ";";
-
         String code = (acc != null) ? acc + ":\n" + base : base;
-        int kind = isLocalScope() ? Fragment.LOCAL : Fragment.GLOBAL;
-        return new Fragment(kind == Fragment.LOCAL ? Fragment.STATEMENT : Fragment.GLOBAL, code);
+        return new Fragment(isLocalScope() ? Fragment.STATEMENT : Fragment.GLOBAL, code);
     }
 
     private Fragment buildArrayDecl(String acc, String type, String id, Integer size, List vals) {
         StringBuilder sb = new StringBuilder();
-        sb.append(cppType(type)).append(" ").append(id)
-          .append("[").append(size).append("]");
+        sb.append(cppType(type)).append(" ").append(id).append("[").append(size).append("]");
         if (vals != null && !vals.isEmpty())
             sb.append(" = { ").append(join(vals, ", ")).append(" }");
         sb.append(";");
-
-        String code = (acc != null) ? acc + ":\n" + sb.toString() : sb.toString();
-        int kind = isLocalScope() ? Fragment.STATEMENT : Fragment.GLOBAL;
-        return new Fragment(kind, code);
+        String code = (acc != null) ? acc + ":\n" + sb : sb.toString();
+        return new Fragment(isLocalScope() ? Fragment.STATEMENT : Fragment.GLOBAL, code);
     }
 
     private String buildFunction(String acc, String retType, String id, List params, String block) {
         StringBuilder sb = new StringBuilder();
         if (acc != null) sb.append(acc).append(":\n");
-        sb.append(cppType(retType))
-          .append(" ").append(id)
-          .append("(").append(paramsToCpp(params)).append(") ")
-          .append(block);
+        sb.append(cppType(retType)).append(" ").append(id)
+          .append("(").append(paramsToCpp(params)).append(") ").append(block);
         return sb.toString();
     }
 
@@ -2219,11 +2189,9 @@ class CUP$Parser$actions {
 		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		String e = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
-		
-                saveErrorPosition(rleft, rright, "vonos");
-                recoverError("Falta FRENO después de vonos (return)");
-                RESULT = new Fragment(Fragment.STATEMENT, "return " + e + ";");
-            
+		 savePos(rleft, rright, "vonos");
+                 recoverError("Falta FRENO después de vonos (return)");
+                 RESULT = new Fragment(Fragment.STATEMENT, "return " + e + ";"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("statement",2, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2232,9 +2200,6 @@ class CUP$Parser$actions {
           case 16: // statement ::= BREAK SEMICOLON 
             {
               Fragment RESULT =null;
-		int bleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
-		int bright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
-		Object b = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
 		 RESULT = new Fragment(Fragment.STATEMENT, "break;"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("statement",2, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
@@ -2247,11 +2212,9 @@ class CUP$Parser$actions {
 		int bleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int bright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		Object b = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
-		
-                saveErrorPosition(bleft, bright, "cuaje");
-                recoverError("Falta FRENO después de cuaje (break)");
-                RESULT = new Fragment(Fragment.STATEMENT, "break;");
-            
+		 savePos(bleft, bright, "cuaje");
+                 recoverError("Falta FRENO después de cuaje (break)");
+                 RESULT = new Fragment(Fragment.STATEMENT, "break;"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("statement",2, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2272,11 +2235,9 @@ class CUP$Parser$actions {
 		int cleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int cright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		Object c = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
-		
-                saveErrorPosition(cleft, cright, "chanin");
-                recoverError("Falta FRENO después de chanin (continue)");
-                RESULT = new Fragment(Fragment.STATEMENT, "continue;");
-            
+		 savePos(cleft, cright, "chanin");
+                 recoverError("Falta FRENO después de chanin (continue)");
+                 RESULT = new Fragment(Fragment.STATEMENT, "continue;"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("statement",2, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2303,11 +2264,9 @@ class CUP$Parser$actions {
 		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).left;
 		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).right;
 		String e = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-2)).value;
-		
-                saveErrorPosition(pleft, pright, "chotear");
-                recoverError("Falta FRENO después de chotear (print)");
-                RESULT = new Fragment(Fragment.STATEMENT, "std::cout << " + e + " << std::endl;");
-            
+		 savePos(pleft, pright, "chotear");
+                 recoverError("Falta FRENO después de chotear (print)");
+                 RESULT = new Fragment(Fragment.STATEMENT, "std::cout << " + e + " << std::endl;"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("statement",2, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2319,11 +2278,9 @@ class CUP$Parser$actions {
 		int pleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)).left;
 		int pright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)).right;
 		Object p = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-4)).value;
-		
-                saveErrorPosition(pleft, pright, "chotear");
-                recoverError("Expresión inválida en chotear (print)");
-                RESULT = new Fragment(Fragment.STATEMENT, "std::cout << \"\" << std::endl;");
-            
+		 savePos(pleft, pright, "chotear");
+                 recoverError("Expresión inválida en chotear (print)");
+                 RESULT = new Fragment(Fragment.STATEMENT, "std::cout << \"\" << std::endl;"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("statement",2, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2347,12 +2304,9 @@ class CUP$Parser$actions {
 		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		String e = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
-		
-                // eleft apunta al inicio de la expresión, que es la línea correcta
-                saveErrorPosition(eleft, eright, e.length() > 20 ? e.substring(0,20) : e);
-                recoverError("Falta FRENO al final de la expresión");
-                RESULT = new Fragment(Fragment.STATEMENT, e + ";");
-            
+		 savePos(eleft, eright, e.length() > 20 ? e.substring(0,20) : e);
+                 recoverError("Falta FRENO al final de la expresión");
+                 RESULT = new Fragment(Fragment.STATEMENT, e + ";"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("statement",2, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2361,10 +2315,8 @@ class CUP$Parser$actions {
           case 25: // statement ::= error SEMICOLON 
             {
               Fragment RESULT =null;
-		
-                recoverError("Sentencia inválida — token inesperado en esta posición");
-                RESULT = new Fragment(Fragment.STATEMENT, "// sentencia inválida");
-            
+		 recoverErrorForced("Sentencia inválida — token inesperado en esta posición");
+                 RESULT = new Fragment(Fragment.STATEMENT, "// sentencia inválida"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("statement",2, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2373,7 +2325,19 @@ class CUP$Parser$actions {
           case 26: // block_open ::= LEFT_BRACE 
             {
               Object RESULT =null;
-		 enterBlock(); 
+		int lbleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
+		int lbright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
+		Object lb = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
+		 enterBlock();
+                  // Guardar posición del ALMA de apertura para que si el bloque
+                  // no se cierra, recoverErrorForced() reporte esta línea/columna
+                  // y no L1 (que ocurre cuando errorLine fue limpiado por otro error).
+                  if (errorLine < 1) {
+                      errorLine   = normalizeLine(lbleft);
+                      errorColumn = normalizeCol(lbright);
+                      errorLexeme = "ALMA";
+                  }
+               
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("block_open",4, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2385,10 +2349,10 @@ class CUP$Parser$actions {
 		int sleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int sright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		List s = (List)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
-		
-              exitBlock();
-              RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}";
-          
+		 exitBlock();
+             // Bloque cerrado correctamente — limpiar posición guardada por block_open
+             errorLine = -1; errorColumn = -1; errorLexeme = null;
+             RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}"; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("block",3, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2403,11 +2367,15 @@ class CUP$Parser$actions {
 		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		Object e = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		
-              exitBlock();
-              recoverErrorForced("Falta CUERPO (}) para cerrar el bloque");
-              RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}";
-          
+		 exitBlock();
+             // Si errorLine no fue capturado, usar posición del token error
+             if (errorLine < 1) {
+                 errorLine   = normalizeLine(eleft);
+                 errorColumn = normalizeCol(eright);
+                 errorLexeme = "CUERPO";
+             }
+             recoverErrorForced("Falta CUERPO (}) para cerrar el bloque");
+             RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}"; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("block",3, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2515,11 +2483,9 @@ class CUP$Parser$actions {
 		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		String e = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
-		
-           saveErrorPosition(idleft, idright, id);
-           recoverError("Falta FRENO al declarar la variable '" + id + "'");
-           RESULT = buildVarDecl(null, t, id, e, false);
-       
+		 savePos(idleft, idright, id);
+            recoverError("Falta FRENO al declarar la variable '" + id + "'");
+            RESULT = buildVarDecl(null, t, id, e, false); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("decl",5, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2540,11 +2506,9 @@ class CUP$Parser$actions {
 		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		String e = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
-		
-           saveErrorPosition(idleft, idright, id);
-           recoverError("Falta FRENO al declarar la variable '" + id + "'");
-           RESULT = buildVarDecl(acc, t, id, e, false);
-       
+		 savePos(idleft, idright, id);
+            recoverError("Falta FRENO al declarar la variable '" + id + "'");
+            RESULT = buildVarDecl(acc, t, id, e, false); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("decl",5, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-5)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2559,11 +2523,9 @@ class CUP$Parser$actions {
 		int idleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int idright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		String id = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
-		
-           saveErrorPosition(idleft, idright, id);
-           recoverError("Falta DAR (=) o FRENO al declarar la variable '" + id + "'");
-           RESULT = buildVarDecl(null, t, id, null, false);
-       
+		 savePos(idleft, idright, id);
+            recoverError("Falta DAR (=) o FRENO al declarar la variable '" + id + "'");
+            RESULT = buildVarDecl(null, t, id, null, false); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("decl",5, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2599,11 +2561,9 @@ class CUP$Parser$actions {
 		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		String e = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
-		
-           saveErrorPosition(idleft, idright, id);
-           recoverError("Falta FRENO al declarar la constante '" + id + "'");
-           RESULT = buildVarDecl(null, t, id, e, true);
-       
+		 savePos(idleft, idright, id);
+            recoverError("Falta FRENO al declarar la constante '" + id + "'");
+            RESULT = buildVarDecl(null, t, id, e, true); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("decl",5, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-5)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2786,7 +2746,8 @@ class CUP$Parser$actions {
 		int membersleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int membersright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		List members = (List)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
-		 RESULT = new Fragment(Fragment.CLASS, "class " + id + " {\n" + joinClassMembers(members) + "};"); 
+		 RESULT = new Fragment(Fragment.CLASS,
+                    "class " + id + " {\n" + joinClassMembers(members) + "};"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("decl_class",6, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2804,10 +2765,14 @@ class CUP$Parser$actions {
 		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		Object e = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		
-                 recoverErrorForced("Falta CUERPO (}) para cerrar la banda (clase) '" + id + "'");
-                 RESULT = new Fragment(Fragment.CLASS, "class " + id + " {\n" + joinClassMembers(members) + "};");
-             
+		 if (errorLine < 1) {
+                      errorLine   = normalizeLine(eleft);
+                      errorColumn = normalizeCol(eright);
+                      errorLexeme = "CUERPO";
+                  }
+                  recoverErrorForced("Falta CUERPO (}) para cerrar la banda (clase) '" + id + "'");
+                  RESULT = new Fragment(Fragment.CLASS,
+                    "class " + id + " {\n" + joinClassMembers(members) + "};"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("decl_class",6, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2888,10 +2853,9 @@ class CUP$Parser$actions {
 		int bleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int bright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		String b = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		
-                        recoverError("Parámetros inválidos en el constructor '" + id + "'");
-                        RESULT = buildConstructor(id, new ArrayList(), b);
-                    
+		 savePos(idleft, idright, id);
+                         recoverError("Parámetros inválidos en el constructor '" + id + "'");
+                         RESULT = buildConstructor(id, new ArrayList(), b); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("decl_constructors",7, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2906,13 +2870,8 @@ class CUP$Parser$actions {
 		int pleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).left;
 		int pright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).right;
 		List p = (List)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-2)).value;
-		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
-		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
-		Object e = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		
-                        recoverError("Falta ALMA..CUERPO ({...}) en el constructor '" + id + "'");
-                        RESULT = buildConstructor(id, p, "{}");
-                    
+		 recoverError("Falta ALMA..CUERPO ({...}) en el constructor '" + id + "'");
+                         RESULT = buildConstructor(id, p, "{}"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("decl_constructors",7, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2939,10 +2898,8 @@ class CUP$Parser$actions {
 		int idleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)).left;
 		int idright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)).right;
 		String id = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-3)).value;
-		
-               recoverError("Argumentos inválidos en estrenar (new)");
-               RESULT = "new " + id + "()";
-           
+		 recoverError("Argumentos inválidos en estrenar (new)");
+                RESULT = "new " + id + "()"; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("new_expr",8, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2954,11 +2911,7 @@ class CUP$Parser$actions {
 		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		String e = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		
-                   List vals = new ArrayList();
-                   vals.add(e);
-                   RESULT = vals;
-               
+		 List vals = new ArrayList(); vals.add(e); RESULT = vals; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("array_values",16, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3021,11 +2974,7 @@ class CUP$Parser$actions {
 		int pleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int pright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		ParamInfo p = (ParamInfo)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		
-                           List list = new ArrayList();
-                           list.add(p);
-                           RESULT = list;
-                       
+		 List l = new ArrayList(); l.add(p); RESULT = l; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("non_empty_param_list",13, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3145,7 +3094,8 @@ class CUP$Parser$actions {
 		int elseBlkleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int elseBlkright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		String elseBlk = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		 RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + thenBlk + " else " + elseBlk); 
+		 RESULT = new Fragment(Fragment.STATEMENT,
+                 "if (" + cond + ") " + thenBlk + " else " + elseBlk); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("if_stmt",17, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-6)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3163,7 +3113,8 @@ class CUP$Parser$actions {
 		int elseIfleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int elseIfright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		Fragment elseIf = (Fragment)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		 RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + thenBlk + " else " + elseIf.code); 
+		 RESULT = new Fragment(Fragment.STATEMENT,
+                 "if (" + cond + ") " + thenBlk + " else " + elseIf.code); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("if_stmt",17, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-6)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3178,11 +3129,9 @@ class CUP$Parser$actions {
 		int bleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int bright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		String b = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		
-              saveErrorPosition(ileft, iright, "simon");
-              recoverError("Condición inválida en simon (if)");
-              RESULT = new Fragment(Fragment.STATEMENT, "if (false) " + b);
-          
+		 savePos(ileft, iright, "simon");
+               recoverError("Condición inválida en simon (if)");
+               RESULT = new Fragment(Fragment.STATEMENT, "if (false) " + b); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("if_stmt",17, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3200,11 +3149,9 @@ class CUP$Parser$actions {
 		int bleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int bright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		String b = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		
-              saveErrorPosition(ileft, iright, "simon");
-              recoverError("Falta RESPANDO ()) en la condición de simon (if)");
-              RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + b);
-          
+		 savePos(ileft, iright, "simon");
+               recoverError("Falta RESPANDO ()) en la condición de simon (if)");
+               RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + b); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("if_stmt",17, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3234,11 +3181,9 @@ class CUP$Parser$actions {
 		int bleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int bright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		String b = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		
-                 saveErrorPosition(wleft, wright, "seguile");
-                 recoverError("Condición inválida en seguile (while)");
-                 RESULT = new Fragment(Fragment.STATEMENT, "while (false) " + b);
-             
+		 savePos(wleft, wright, "seguile");
+                  recoverError("Condición inválida en seguile (while)");
+                  RESULT = new Fragment(Fragment.STATEMENT, "while (false) " + b); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("while_stmt",18, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3256,11 +3201,9 @@ class CUP$Parser$actions {
 		int bleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int bright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		String b = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		
-                 saveErrorPosition(wleft, wright, "seguile");
-                 recoverError("Falta RESPANDO ()) en la condición de seguile (while)");
-                 RESULT = new Fragment(Fragment.STATEMENT, "while (" + cond + ") " + b);
-             
+		 savePos(wleft, wright, "seguile");
+                  recoverError("Falta RESPANDO ()) en la condición de seguile (while)");
+                  RESULT = new Fragment(Fragment.STATEMENT, "while (" + cond + ") " + b); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("while_stmt",18, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3275,7 +3218,8 @@ class CUP$Parser$actions {
 		int condleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).left;
 		int condright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).right;
 		String cond = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-2)).value;
-		 RESULT = new Fragment(Fragment.STATEMENT, "do " + b + " while (" + cond + ");"); 
+		 RESULT = new Fragment(Fragment.STATEMENT,
+                       "do " + b + " while (" + cond + ");"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("do_while_stmt",22, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-6)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3293,14 +3237,10 @@ class CUP$Parser$actions {
 		int condleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).left;
 		int condright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).right;
 		String cond = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-2)).value;
-		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
-		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
-		Object e = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		
-                    saveErrorPosition(wleft, wright, "seguile");
-                    recoverError("Falta FRENO al final de dale...seguile (do-while)");
-                    RESULT = new Fragment(Fragment.STATEMENT, "do " + b + " while (" + cond + ");");
-                
+		 savePos(wleft, wright, "seguile");
+                     recoverError("Falta FRENO al final de dale...seguile (do-while)");
+                     RESULT = new Fragment(Fragment.STATEMENT,
+                       "do " + b + " while (" + cond + ");"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("do_while_stmt",22, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-6)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3321,7 +3261,8 @@ class CUP$Parser$actions {
 		int bleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int bright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		String b = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		 RESULT = new Fragment(Fragment.STATEMENT, "for (" + init + "; " + cond + "; " + update + ") " + b); 
+		 RESULT = new Fragment(Fragment.STATEMENT,
+                  "for (" + init + "; " + cond + "; " + update + ") " + b); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("for_stmt",19, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-8)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3336,11 +3277,9 @@ class CUP$Parser$actions {
 		int bleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int bright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		String b = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		
-               saveErrorPosition(fleft, fright, "vuelta");
-               recoverError("Estructura inválida en vuelta (for)");
-               RESULT = new Fragment(Fragment.STATEMENT, "for (;;) " + b);
-           
+		 savePos(fleft, fright, "vuelta");
+                recoverError("Estructura inválida en vuelta (for)");
+                RESULT = new Fragment(Fragment.STATEMENT, "for (;;) " + b); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("for_stmt",19, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3364,11 +3303,10 @@ class CUP$Parser$actions {
 		int bleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int bright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		String b = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		
-               saveErrorPosition(fleft, fright, "vuelta");
-               recoverError("Falta RESPANDO ()) en la estructura de vuelta (for)");
-               RESULT = new Fragment(Fragment.STATEMENT, "for (" + init + "; " + cond + "; " + update + ") " + b);
-           
+		 savePos(fleft, fright, "vuelta");
+                recoverError("Falta RESPANDO ()) en la estructura de vuelta (for)");
+                RESULT = new Fragment(Fragment.STATEMENT,
+                  "for (" + init + "; " + cond + "; " + update + ") " + b); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("for_stmt",19, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-8)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3458,7 +3396,8 @@ class CUP$Parser$actions {
 		int cleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int cright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		List c = (List)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
-		 RESULT = new Fragment(Fragment.STATEMENT, "switch (" + expr + ") {\n" + indent(join(c, "\n")) + "}"); 
+		 RESULT = new Fragment(Fragment.STATEMENT,
+                     "switch (" + expr + ") {\n" + indent(join(c, "\n")) + "}"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("switch_stmt",27, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-6)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3473,11 +3412,10 @@ class CUP$Parser$actions {
 		int cleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int cright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		List c = (List)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
-		
-                  saveErrorPosition(sleft, sright, "chiripa");
-                  recoverError("Expresión inválida en chiripa (switch)");
-                  RESULT = new Fragment(Fragment.STATEMENT, "switch (0) {\n" + indent(join(c, "\n")) + "}");
-              
+		 savePos(sleft, sright, "chiripa");
+                   recoverError("Expresión inválida en chiripa (switch)");
+                   RESULT = new Fragment(Fragment.STATEMENT,
+                     "switch (0) {\n" + indent(join(c, "\n")) + "}"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("switch_stmt",27, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-6)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3495,11 +3433,10 @@ class CUP$Parser$actions {
 		int cleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int cright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		List c = (List)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
-		
-                  saveErrorPosition(sleft, sright, "chiripa");
-                  recoverError("Falta RESPANDO ()) en la expresión de chiripa (switch)");
-                  RESULT = new Fragment(Fragment.STATEMENT, "switch (" + expr + ") {\n" + indent(join(c, "\n")) + "}");
-              
+		 savePos(sleft, sright, "chiripa");
+                   recoverError("Falta RESPANDO ()) en la expresión de chiripa (switch)");
+                   RESULT = new Fragment(Fragment.STATEMENT,
+                     "switch (" + expr + ") {\n" + indent(join(c, "\n")) + "}"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("switch_stmt",27, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-6)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3565,11 +3502,9 @@ class CUP$Parser$actions {
 		int sleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int sright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		List s = (List)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		
-                  saveErrorPosition(cleft, cright, "wasa");
-                  recoverError("Expresión inválida en wasa (case)");
-                  RESULT = "case 0:\n" + indent(joinFragmentsAsBody(s));
-              
+		 savePos(cleft, cright, "wasa");
+                   recoverError("Expresión inválida en wasa (case)");
+                   RESULT = "case 0:\n" + indent(joinFragmentsAsBody(s)); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("case_clause",29, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3584,11 +3519,9 @@ class CUP$Parser$actions {
 		int catchesleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int catchesright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		List catches = (List)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		
-               StringBuilder sb = new StringBuilder("try " + tryBlk);
-               for (Object c : catches) sb.append((String) c);
-               RESULT = new Fragment(Fragment.STATEMENT, sb.toString());
-           
+		 StringBuilder sb = new StringBuilder("try " + tryBlk);
+                for (Object c : catches) sb.append((String) c);
+                RESULT = new Fragment(Fragment.STATEMENT, sb.toString()); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("try_stmt",23, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3615,11 +3548,7 @@ class CUP$Parser$actions {
 		int cleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int cright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		String c = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		
-                 List list = new ArrayList();
-                 list.add(c);
-                 RESULT = list;
-             
+		 List l = new ArrayList(); l.add(c); RESULT = l; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("catch_list",24, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3643,13 +3572,15 @@ class CUP$Parser$actions {
           case 104: // catch_clause ::= CATCH LEFT_PAREN error RIGHT_PAREN block 
             {
               String RESULT =null;
+		int cleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)).left;
+		int cright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)).right;
+		Object c = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-4)).value;
 		int bleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int bright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		String b = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		
-                   recoverError("Parámetro inválido en atrapalo (catch)");
-                   RESULT = " catch (const std::exception& ex) " + b;
-               
+		 savePos(cleft, cright, "atrapalo");
+                    recoverError("Parámetro inválido en atrapalo (catch)");
+                    RESULT = " catch (const std::exception& ex) " + b; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("catch_clause",25, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3661,13 +3592,8 @@ class CUP$Parser$actions {
 		int pleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).left;
 		int pright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).right;
 		ParamInfo p = (ParamInfo)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-2)).value;
-		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
-		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
-		Object e = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		
-                   recoverError("Falta ALMA..CUERPO ({...}) en atrapalo (catch)");
-                   RESULT = " catch (" + p.toCatchCpp() + ") {}";
-               
+		 recoverError("Falta ALMA..CUERPO ({...}) en atrapalo (catch)");
+                    RESULT = " catch (" + p.toCatchCpp() + ") {}"; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("catch_clause",25, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -3694,11 +3620,9 @@ class CUP$Parser$actions {
 		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		String e = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
-		
-                 saveErrorPosition(tleft, tright, "morongazo");
-                 recoverError("Falta FRENO después de morongazo (throw)");
-                 RESULT = new Fragment(Fragment.STATEMENT, "throw " + e + ";");
-             
+		 savePos(tleft, tright, "morongazo");
+                  recoverError("Falta FRENO después de morongazo (throw)");
+                  RESULT = new Fragment(Fragment.STATEMENT, "throw " + e + ";"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("throw_stmt",26, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -4310,10 +4234,8 @@ class CUP$Parser$actions {
 		int idleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)).left;
 		int idright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)).right;
 		String id = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-3)).value;
-		
-                   recoverError("Índice inválido entre CAJON..TAPA ([..]) en arreglo");
-                   RESULT = id + "[0]";
-               
+		 recoverError("Índice inválido entre CAJON..TAPA ([..]) en arreglo");
+                    RESULT = id + "[0]"; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("array_access",46, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -4484,10 +4406,8 @@ class CUP$Parser$actions {
 		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		String e = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
-		
-              recoverError("Falta RESPANDO ()) en la expresión agrupada");
-              RESULT = "(" + e + ")";
-          
+		 recoverError("Falta RESPANDO ()) en la expresión agrupada");
+               RESULT = "(" + e + ")"; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("primary",40, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -4514,10 +4434,8 @@ class CUP$Parser$actions {
 		int idleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)).left;
 		int idright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)).right;
 		String id = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-3)).value;
-		
-                recoverError("Argumentos inválidos en llamada a función '" + id + "'");
-                RESULT = id + "()";
-            
+		 recoverError("Argumentos inválidos en llamada a función '" + id + "'");
+                 RESULT = id + "()"; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("func_call",42, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -4565,11 +4483,7 @@ class CUP$Parser$actions {
 		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		String e = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
-		
-                         List list = new ArrayList();
-                         list.add(e);
-                         RESULT = list;
-                     
+		 List l = new ArrayList(); l.add(e); RESULT = l; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("non_empty_arg_list",44, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;

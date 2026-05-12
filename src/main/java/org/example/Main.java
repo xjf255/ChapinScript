@@ -102,8 +102,8 @@ public class Main {
             } else {
                 System.out.println("No se pudo generar el código C++.");
             }
-
-            List<SymbolInfo> symbols = SymbolTableGenerator.generate(tokens);
+            SymbolTableGenerator tableGenerator = new SymbolTableGenerator();
+            List<SymbolInfo> symbols = tableGenerator.generate(tokens);
 
             FileManager.writeFile(
                     OUTPUT_DIR + "/output.cpp",

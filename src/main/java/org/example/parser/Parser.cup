@@ -5,6 +5,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 parser code {:
+    /* ══════════════════════════════════════════════════════════════
+       CLASES DE DATOS
+       ══════════════════════════════════════════════════════════════ */
     public static class SyntaxError {
         public final String type;
         public final String message;
@@ -34,7 +37,6 @@ parser code {:
         public static final int GLOBAL    = 2;
         public static final int FUNCTION  = 3;
         public static final int CLASS     = 4;
-        public static final int LOCAL     = 5;
 
         public final int    kind;
         public final String code;
@@ -66,131 +68,94 @@ parser code {:
         }
     }
 
-    // ── Estado de contexto ────────────────────────────────────────────────
-    /** Profundidad de bloque: 0 = ámbito global, >0 = dentro de función/método */
+    /* ══════════════════════════════════════════════════════════════
+       ESTADO DE CONTEXTO
+       ══════════════════════════════════════════════════════════════ */
     private int blockDepth = 0;
-
     public void enterBlock() { blockDepth++; }
     public void exitBlock()  { if (blockDepth > 0) blockDepth--; }
     public boolean isLocalScope() { return blockDepth > 0; }
 
-    // ── Control de recuperación ───────────────────────────────────────────
-    /**
-     * Cuando CUP entra en modo pánico y luego se recupera mediante una
-     * producción con 'error', llama a syntax_error() Y después ejecuta
-     * la acción de la producción (que también llama addSyntaxError).
-     * Esto genera duplicados. La bandera justRecovered bloquea el segundo
-     * llamado automático de syntax_error() que ocurre POST-recuperación.
-     *
-     * Flujo sin bandera:
-     *   syntax_error()  → registra "Símbolo inesperado"   (1)
-     *   acción error    → registra "Falta ';' después de X" (2)  ← duplicado
-     *
-     * Flujo con bandera:
-     *   syntax_error()  → registra "Símbolo inesperado", activa bandera (1)
-     *   acción error    → registra "Falta ';' después de X"           (2) ✓
-     *   syntax_error()  → bandera activa → descarta, limpia bandera    (skip)
-     */
-    private boolean justRecovered = false;
-
-    /**
-     * Posición del token que disparó el error original, guardada ANTES
-     * de que CUP descarte tokens durante la recuperación de pánico.
-     * Permite reportar la posición real del error en vez de la del token
-     * de sincronización (que puede estar varias líneas después).
-     */
-    private int errorLine   = -1;
-    private int errorColumn = -1;
-    private String errorLexeme = null;
-
-    // ── Errores sintácticos ───────────────────────────────────────────────
+    /* ══════════════════════════════════════════════════════════════
+       TABLA DE ERRORES
+       ══════════════════════════════════════════════════════════════ */
     private final List<SyntaxError> syntaxErrors = new ArrayList<>();
-
     public List<SyntaxError> getSyntaxErrors() { return syntaxErrors; }
 
-    /**
-     * Normaliza line/column negativos (que CUP produce cuando no tiene
-     * información de posición) a 1,1 para que el reporte no muestre L0/C0.
-     */
-    private int normalizeLine(int line)     { return line   < 1 ? 1 : line; }
-    private int normalizeColumn(int column) { return column < 1 ? 1 : column; }
+    /* ══════════════════════════════════════════════════════════════
+       ESTADO DE RECUPERACIÓN
+       ══════════════════════════════════════════════════════════════
 
-    private void addSyntaxError(Symbol token, String message) {
-        int line, column;
-        String lexeme;
+       El ciclo de vida de un error en CUP es:
+         1. syntax_error(tok)  → CUP detecta que tok no encaja
+         2. CUP descarta tokens hasta encontrar un token de sincronización
+         3. La acción de la producción 'error' se ejecuta
 
-        if (token != null) {
-            lexeme = resolveLexeme(token);
-            line   = normalizeLine(token.left);
-            column = normalizeColumn(token.right);
-        } else {
-            lexeme = "desconocido";
-            line   = 1;
-            column = 1;
-        }
+       Problema A — DUPLICADO:
+         syntax_error() registra "Símbolo inesperado" (1)
+         La acción registra "Falta FRENO en X"        (2)  ← duplicado
 
-        addSyntaxError(line, column, lexeme, message);
-    }
+       Problema B — POSICIÓN INCORRECTA:
+         En el paso 2, CUP ya consumió tokens de líneas siguientes,
+         por lo que eleft/eright apuntan al token de sincronización,
+         no al error real.
 
-    private void addSyntaxError(int line, int column, String lexeme, String message) {
-        line   = normalizeLine(line);
-        column = normalizeColumn(column);
+       Problema C — CASCADA:
+         Un error dentro de un bloque (break sin FRENO) dispara
+         también un error en el bloque contenedor (for/while).
 
-        if (lexeme == null || lexeme.isBlank()) lexeme = "desconocido";
+       Solución:
+         - justRecovered: bloquea el syntax_error() post-recuperación
+         - errorLine/Col/Lexeme: guarda posición ANTES del descarte
+         - pendingMessage: el mensaje de syntax_error() se guarda pero
+           NO se registra todavía; se registra solo si recoverError()
+           no viene a reemplazarlo con un mensaje más preciso.
+         - lastRecoveredLine: suprime cascadas cercanas
+    ══════════════════════════════════════════════════════════════ */
+    private boolean justRecovered    = false;
+    private int     errorLine        = -1;
+    private int     errorColumn      = -1;
+    private String  errorLexeme      = null;
+    private String  pendingMessage   = null;   // mensaje de syntax_error() en espera
+    private int     lastRecoveredLine = -1;    // última línea donde se registró un error
 
-        // Deduplicación: evitar el mismo error exacto consecutivo.
-        if (!syntaxErrors.isEmpty()) {
-            SyntaxError last = syntaxErrors.get(syntaxErrors.size() - 1);
-            if (last.line == line && last.message.equals(message)) {
-                return;
-            }
-        }
+    private int normalizeLine(int l)   { return l < 1 ? 1 : l; }
+    private int normalizeCol(int c)    { return c < 1 ? 1 : c; }
 
-        syntaxErrors.add(new SyntaxError("Sintáctico", message, line, column, lexeme));
-    }
-
-    /**
-     * Mapa de sym (código interno de CUP) al lexema ChapinScript real.
-     * Necesario porque los terminales sin valor semántico (palabras reservadas,
-     * operadores, delimitadores) llegan al parser con token.value == null.
-     * Sin este mapa el lexema reportado sería "desconocido" o el del siguiente
-     * token de sincronización.
-     */
-    private String symToChapinLexeme(int symCode) {
-        switch (symCode) {
-            // Palabras reservadas
-            case sym.PRINT:     return "chotear";
-            case sym.IF:        return "simon";
-            case sym.ELSE:      return "chapus";
-            case sym.SWITCH:    return "chiripa";
-            case sym.CASE:      return "wasa";
-            case sym.DEFAULT:   return "porsiacaso";
-            case sym.FOR:       return "vuelta";
-            case sym.WHILE:     return "seguile";
-            case sym.DO:        return "dale";
-            case sym.BREAK:     return "cuaje";
-            case sym.CONTINUE:  return "chanin";
-            case sym.RETURN:    return "vonos";
-            case sym.INT:       return "cabal";
-            case sym.FLOAT:     return "pisto";
-            case sym.DOUBLE:    return "pistazo";
-            case sym.CHAR:      return "cachito";
-            case sym.BOOL:      return "casaca";
-            case sym.VOID:      return "nimais";
-            case sym.STRING:    return "chisme";
-            case sym.CONST:     return "fijo";
-            case sym.CLASS:     return "banda";
-            case sym.THIS:      return "vos";
-            case sym.TRY:       return "calale";
-            case sym.CATCH:     return "atrapalo";
-            case sym.THROW:     return "morongazo";
-            case sym.PUBLIC:    return "barrio";
-            case sym.PRIVATE:   return "caquero";
-            case sym.TRUE:      return "deplano";
-            case sym.FALSE:     return "nel";
-            case sym.NULL:      return "inutil";
-            case sym.NEW:       return "estrenar";
-            // Operadores compuestos
+    /* ── Mapa sym → lexema ChapinScript ─────────────────────────── */
+    private String symToLexeme(int s) {
+        switch (s) {
+            case sym.PRINT:           return "chotear";
+            case sym.IF:              return "simon";
+            case sym.ELSE:            return "chapus";
+            case sym.SWITCH:          return "chiripa";
+            case sym.CASE:            return "wasa";
+            case sym.DEFAULT:         return "porsiacaso";
+            case sym.FOR:             return "vuelta";
+            case sym.WHILE:           return "seguile";
+            case sym.DO:              return "dale";
+            case sym.BREAK:           return "cuaje";
+            case sym.CONTINUE:        return "chanin";
+            case sym.RETURN:          return "vonos";
+            case sym.INT:             return "cabal";
+            case sym.FLOAT:           return "pisto";
+            case sym.DOUBLE:          return "pistazo";
+            case sym.CHAR:            return "cachito";
+            case sym.BOOL:            return "casaca";
+            case sym.VOID:            return "nimais";
+            case sym.STRING:          return "chisme";
+            case sym.CONST:           return "fijo";
+            case sym.CLASS:           return "banda";
+            case sym.THIS:            return "vos";
+            case sym.TRY:             return "calale";
+            case sym.CATCH:           return "atrapalo";
+            case sym.THROW:           return "morongazo";
+            case sym.PUBLIC:          return "barrio";
+            case sym.PRIVATE:         return "caquero";
+            case sym.TRUE:            return "deplano";
+            case sym.FALSE:           return "nel";
+            case sym.NULL:            return "inutil";
+            case sym.NEW:             return "estrenar";
             case sym.EQUALS:          return "GEMELOS";
             case sym.NOT_EQUALS:      return "DIVORCIO";
             case sym.LESS_EQUAL:      return "BASE";
@@ -204,181 +169,259 @@ parser code {:
             case sym.MULTIPLY_ASSIGN: return "ESTRELLA_DAR";
             case sym.DIVIDE_ASSIGN:   return "RAMPA_DAR";
             case sym.MOD_ASSIGN:      return "SOBRA_DAR";
-            // Operadores simples
-            case sym.ASSIGN:        return "DAR";
-            case sym.LESS_THAN:     return "PICO";
-            case sym.GREATER_THAN:  return "BOCA";
-            case sym.PLUS:          return "CRUZ";
-            case sym.MINUS:         return "RAYA";
-            case sym.MULTIPLY:      return "ESTRELLA";
-            case sym.DIVIDE:        return "RAMPA";
-            case sym.MOD:           return "SOBRA";
-            case sym.NOT:           return "GRITO";
-            // Delimitadores
-            case sym.SEMICOLON:     return "FRENO";
-            case sym.COMMA:         return "SEMILLA";
-            case sym.DOT:           return "ATOMO";
-            case sym.QUESTION:      return "DUDA";
-            case sym.COLON:         return "OJOS";
-            case sym.LEFT_PAREN:    return "ABRAZO";
-            case sym.RIGHT_PAREN:   return "RESPANDO";
-            case sym.LEFT_BRACE:    return "ALMA";
-            case sym.RIGHT_BRACE:   return "CUERPO";
-            case sym.LEFT_BRACKET:  return "CAJON";
-            case sym.RIGHT_BRACKET: return "TAPA";
-            // Especiales
-            case sym.EOF:           return "EOF";
-            default:                return null;   // tiene value semántico propio
+            case sym.ASSIGN:          return "DAR";
+            case sym.LESS_THAN:       return "PICO";
+            case sym.GREATER_THAN:    return "BOCA";
+            case sym.PLUS:            return "CRUZ";
+            case sym.MINUS:           return "RAYA";
+            case sym.MULTIPLY:        return "ESTRELLA";
+            case sym.DIVIDE:          return "RAMPA";
+            case sym.MOD:             return "SOBRA";
+            case sym.NOT:             return "GRITO";
+            case sym.SEMICOLON:       return "FRENO";
+            case sym.COMMA:           return "SEMILLA";
+            case sym.DOT:             return "ATOMO";
+            case sym.QUESTION:        return "DUDA";
+            case sym.COLON:           return "OJOS";
+            case sym.LEFT_PAREN:      return "ABRAZO";
+            case sym.RIGHT_PAREN:     return "RESPANDO";
+            case sym.LEFT_BRACE:      return "ALMA";
+            case sym.RIGHT_BRACE:     return "CUERPO";
+            case sym.LEFT_BRACKET:    return "CAJON";
+            case sym.RIGHT_BRACKET:   return "TAPA";
+            case sym.EOF:             return "EOF";
+            default:                  return null;
         }
     }
 
-    /**
-     * Resuelve el lexema legible de un Symbol:
-     *  1. Si el sym tiene un lexema ChapinScript conocido → lo usa.
-     *  2. Si tiene value semántico (IDENTIFIER, literales) → usa value.toString().
-     *  3. Fallback → "desconocido".
-     */
     private String resolveLexeme(Symbol s) {
         if (s == null) return "desconocido";
-        String mapped = symToChapinLexeme(s.sym);
-        if (mapped != null) return mapped;
+        String m = symToLexeme(s.sym);
+        if (m != null) return m;
         if (s.value != null && !s.value.toString().isBlank()) return s.value.toString();
         return "desconocido";
     }
 
-    /**
-     * Guarda la posición y lexema del token que causó el error, ANTES de que
-     * CUP descarte tokens durante la recuperación de pánico.
-     * Usa resolveLexeme() para obtener el nombre ChapinScript correcto.
-     */
-    private void saveErrorPosition(Symbol cur_token) {
-        if (cur_token != null) {
-            errorLine   = normalizeLine(cur_token.left);
-            errorColumn = normalizeColumn(cur_token.right);
-            errorLexeme = resolveLexeme(cur_token);
+    /* ── Guardar posición del error antes del descarte ─────────── */
+    private void savePos(Symbol t) {
+        if (t != null) {
+            errorLine   = normalizeLine(t.left);
+            errorColumn = normalizeCol(t.right);
+            errorLexeme = resolveLexeme(t);
         } else {
-            errorLine   = 1;
-            errorColumn = 1;
-            errorLexeme = "desconocido";
+            errorLine = 1; errorColumn = 1; errorLexeme = "desconocido";
         }
     }
 
     /**
-     * Versión de saveErrorPosition que acepta posición y lexema explícitos.
-     * Usar en producciones donde el token de contexto (ej. PRINT, IF, WHILE)
-     * ya fue consumido y su posición está disponible como variable :p, :w, etc.
-     * Esto garantiza que la bitácora diga "cerca de 'chotear'" y no el token
-     * que vino después.
+     * Versión con posición explícita del token de contexto (IF, WHILE, etc.)
+     * Solo sobreescribe la posición guardada si no hay una posición válida
+     * del token real que falló — syntax_error() ya la habrá guardado antes.
+     * Siempre actualiza el lexema para que diga "simon", "seguile", etc.
+     * en lugar del token de sincronización.
      */
-    private void saveErrorPosition(int line, int column, String lexeme) {
-        errorLine   = normalizeLine(line);
-        errorColumn = normalizeColumn(column);
+    private void savePos(int line, int col, String lexeme) {
+        // Siempre usar el lexema del token de contexto (más legible)
         errorLexeme = (lexeme != null && !lexeme.isBlank()) ? lexeme : "desconocido";
+        // Línea y columna: preferir la del error real guardada por syntax_error()
+        // Solo usar la del token de contexto si no hay nada guardado
+        if (errorLine < 1) {
+            errorLine   = normalizeLine(line);
+            errorColumn = normalizeCol(col);
+        }
+        // Si ya tenemos posición real del error (guardada en syntax_error),
+        // la mantenemos — es más precisa que la del token de contexto.
     }
 
-    @Override
-    public void syntax_error(Symbol cur_token) {
-        // FIX: si acabamos de recuperarnos, limpiamos la bandera pero
-        // GUARDAMOS la posición del nuevo token para que el próximo
-        // recoverError() la use correctamente (errores encadenados).
-        if (justRecovered) {
-            justRecovered = false;
-            saveErrorPosition(cur_token);
+    /* ── Registro real de errores ───────────────────────────────── */
+    private void doRegister(int line, int col, String lexeme, String message) {
+        doRegister(line, col, lexeme, message, false);
+    }
+
+    private void doRegister(int line, int col, String lexeme, String message, boolean force) {
+        line   = normalizeLine(line);
+        col    = normalizeCol(col);
+        if (lexeme == null || lexeme.isBlank()) lexeme = "desconocido";
+
+        // Deduplicación exacta consecutiva
+        if (!syntaxErrors.isEmpty()) {
+            SyntaxError last = syntaxErrors.get(syntaxErrors.size() - 1);
+            if (last.line == line && last.message.equals(message)) return;
+        }
+
+        // Supresión de cascada — solo si no es forzado
+        if (!force && lastRecoveredLine > 0 && Math.abs(line - lastRecoveredLine) <= 2) {
             return;
         }
 
-        // Guardar la posición del token que causó el error AHORA, antes de
-        // que CUP empiece a descartar tokens durante la recuperación de pánico.
-        saveErrorPosition(cur_token);
+        syntaxErrors.add(new SyntaxError("Sintáctico", message, line, col, lexeme));
+    }
 
-        String message = "Símbolo inesperado";
-        if (cur_token != null) {
+    /* ── addSyntaxError (usado internamente y por report_error) ── */
+    private void addSyntaxError(Symbol token, String message) {
+        if (token != null) {
+            doRegister(normalizeLine(token.left), normalizeCol(token.right),
+                       resolveLexeme(token), message);
+        } else {
+            doRegister(1, 1, "desconocido", message);
+        }
+    }
+
+    private void addSyntaxError(int line, int col, String lexeme, String message) {
+        doRegister(line, col, lexeme, message);
+    }
+
+    /* ── syntax_error: punto de entrada de CUP ─────────────────── */
+    @Override
+    public void syntax_error(Symbol cur_token) {
+        // POST-RECUPERACIÓN: CUP llama syntax_error() de nuevo con el
+        // token de continuación. Lo descartamos — recoverError() ya
+        // registró el mensaje preciso. Actualizamos la posición guardada
+        // por si hay errores encadenados.
+        if (justRecovered) {
+            justRecovered = false;
+            savePos(cur_token);
+            return;
+        }
+
+        // Guardar posición ANTES del descarte de pánico
+        savePos(cur_token);
+
+        // Construir mensaje con nombres ChapinScript
+        String message;
+        if (cur_token == null) {
+            message = "Símbolo inesperado";
+        } else {
             switch (cur_token.sym) {
-                // Delimitadores
-                case sym.SEMICOLON:     message = "FRENO inesperado";                           break;
-                case sym.RIGHT_BRACE:   message = "CUERPO (}) inesperado";                      break;
-                case sym.RIGHT_PAREN:   message = "RESPANDO ()) inesperado";                    break;
-                case sym.LEFT_BRACE:    message = "ALMA ({) inesperada";                        break;
-                case sym.LEFT_PAREN:    message = "ABRAZO (() inesperado";                      break;
-                case sym.LEFT_BRACKET:  message = "CAJON ([) inesperado";                       break;
-                case sym.RIGHT_BRACKET: message = "TAPA (]) inesperado";                        break;
-                case sym.COMMA:         message = "SEMILLA (,) inesperada";                     break;
-                case sym.DOT:           message = "ATOMO (.) inesperado";                       break;
-                case sym.COLON:         message = "OJOS (:) inesperado";                        break;
-                // Palabras reservadas de control
-                case sym.ELSE:          message = "chapus (else) sin simon (if) válido previo"; break;
-                case sym.CASE:          message = "wasa (case) fuera de un chiripa (switch)";   break;
-                case sym.DEFAULT:       message = "porsiacaso fuera de un chiripa (switch)";    break;
-                case sym.IF:            message = "simon (if) inesperado";                      break;
-                case sym.WHILE:         message = "seguile (while) inesperado";                 break;
-                case sym.FOR:           message = "vuelta (for) inesperado";                    break;
-                case sym.DO:            message = "dale (do) inesperado";                       break;
-                case sym.SWITCH:        message = "chiripa (switch) inesperado";                break;
-                case sym.BREAK:         message = "cuaje (break) inesperado";                   break;
-                case sym.CONTINUE:      message = "chanin (continue) inesperado";               break;
-                case sym.RETURN:        message = "vonos (return) inesperado";                  break;
-                case sym.TRY:           message = "calale (try) inesperado";                    break;
-                case sym.CATCH:         message = "atrapalo (catch) inesperado";                break;
-                case sym.THROW:         message = "morongazo (throw) inesperado";               break;
-                case sym.CLASS:         message = "banda (class) inesperado";                   break;
-                case sym.NEW:           message = "estrenar (new) inesperado";                  break;
-                // Tipos
-                case sym.INT:           message = "cabal (int) inesperado";                     break;
-                case sym.FLOAT:         message = "pisto (float) inesperado";                   break;
-                case sym.DOUBLE:        message = "pistazo (double) inesperado";                break;
-                case sym.CHAR:          message = "cachito (char) inesperado";                  break;
-                case sym.BOOL:          message = "casaca (bool) inesperado";                   break;
-                case sym.STRING:        message = "chisme (string) inesperado";                 break;
-                case sym.VOID:          message = "nimais (void) inesperado";                   break;
-                case sym.CONST:         message = "fijo (const) inesperado";                    break;
-                // Operadores
-                case sym.ASSIGN:        message = "DAR (=) inesperado";                         break;
-                case sym.PLUS:          message = "CRUZ (+) inesperado";                        break;
-                case sym.MINUS:         message = "RAYA (-) inesperado";                        break;
-                case sym.MULTIPLY:      message = "ESTRELLA (*) inesperado";                    break;
-                case sym.DIVIDE:        message = "RAMPA (/) inesperado";                       break;
-                case sym.MOD:           message = "SOBRA (%) inesperado";                       break;
-                case sym.NOT:           message = "GRITO (!) inesperado";                       break;
-                case sym.EQUALS:        message = "GEMELOS (==) inesperado";                    break;
-                case sym.NOT_EQUALS:    message = "DIVORCIO (!=) inesperado";                   break;
-                case sym.LESS_THAN:     message = "PICO (<) inesperado";                        break;
-                case sym.GREATER_THAN:  message = "BOCA (>) inesperado";                        break;
-                case sym.LESS_EQUAL:    message = "BASE (<=) inesperado";                       break;
-                case sym.GREATER_EQUAL: message = "TECHO (>=) inesperado";                      break;
-                case sym.AND:           message = "CADENA (&&) inesperado";                     break;
-                case sym.OR:            message = "VALLAS (||) inesperado";                     break;
-                case sym.INCREMENT:     message = "CRUZ_CRUZ (++) inesperado";                  break;
-                case sym.DECREMENT:     message = "RAYA_RAYA (--) inesperado";                  break;
-                case sym.PLUS_ASSIGN:   message = "CRUZ_DAR (+=) inesperado";                   break;
-                case sym.MINUS_ASSIGN:  message = "RAYA_DAR (-=) inesperado";                   break;
-                case sym.MULTIPLY_ASSIGN: message = "ESTRELLA_DAR (*=) inesperado";             break;
-                case sym.DIVIDE_ASSIGN: message = "RAMPA_DAR (/=) inesperado";                  break;
-                case sym.MOD_ASSIGN:    message = "SOBRA_DAR (%=) inesperado";                  break;
-                // EOF
-                case sym.EOF:           message = "Fin de archivo inesperado";                  break;
-                default:                message = "Símbolo inesperado";                         break;
+                case sym.SEMICOLON:       message = "FRENO inesperado";                                    break;
+                case sym.RIGHT_BRACE:     message = "CUERPO (}) inesperado";                               break;
+                case sym.RIGHT_PAREN:     message = "RESPANDO ()) inesperado";                             break;
+                case sym.LEFT_BRACE:      message = "ALMA ({) inesperada";                                 break;
+                case sym.LEFT_PAREN:      message = "ABRAZO (() inesperado";                               break;
+                case sym.LEFT_BRACKET:    message = "CAJON ([) inesperado";                                break;
+                case sym.RIGHT_BRACKET:   message = "TAPA (]) inesperado";                                 break;
+                case sym.COMMA:           message = "SEMILLA (,) inesperada";                              break;
+                case sym.DOT:             message = "ATOMO (.) inesperado";                                break;
+                case sym.COLON:           message = "OJOS (:) inesperado";                                 break;
+                case sym.ELSE:            message = "chapus (else) sin simon (if) válido previo";          break;
+                case sym.CASE:            message = "wasa (case) fuera de un chiripa (switch)";            break;
+                case sym.DEFAULT:         message = "porsiacaso fuera de un chiripa (switch)";             break;
+                case sym.IF:              message = "simon (if) inesperado";                               break;
+                case sym.WHILE:           message = "seguile (while) inesperado";                          break;
+                case sym.FOR:             message = "vuelta (for) inesperado";                             break;
+                case sym.DO:              message = "dale (do) inesperado";                                break;
+                case sym.SWITCH:          message = "chiripa (switch) inesperado";                         break;
+                case sym.BREAK:           message = "cuaje (break) inesperado";                            break;
+                case sym.CONTINUE:        message = "chanin (continue) inesperado";                        break;
+                case sym.RETURN:          message = "vonos (return) inesperado";                           break;
+                case sym.TRY:             message = "calale (try) inesperado";                             break;
+                case sym.CATCH:           message = "atrapalo (catch) inesperado";                         break;
+                case sym.THROW:           message = "morongazo (throw) inesperado";                        break;
+                case sym.CLASS:           message = "banda (class) inesperado";                            break;
+                case sym.NEW:             message = "estrenar (new) inesperado";                           break;
+                case sym.INT:             message = "cabal (int) inesperado";                              break;
+                case sym.FLOAT:           message = "pisto (float) inesperado";                            break;
+                case sym.DOUBLE:          message = "pistazo (double) inesperado";                         break;
+                case sym.CHAR:            message = "cachito (char) inesperado";                           break;
+                case sym.BOOL:            message = "casaca (bool) inesperado";                            break;
+                case sym.STRING:          message = "chisme (string) inesperado";                          break;
+                case sym.VOID:            message = "nimais (void) inesperado";                            break;
+                case sym.CONST:           message = "fijo (const) inesperado";                             break;
+                case sym.ASSIGN:          message = "DAR (=) inesperado";                                  break;
+                case sym.PLUS:            message = "CRUZ (+) inesperado";                                 break;
+                case sym.MINUS:           message = "RAYA (-) inesperado";                                 break;
+                case sym.MULTIPLY:        message = "ESTRELLA (*) inesperado";                             break;
+                case sym.DIVIDE:          message = "RAMPA (/) inesperado";                                break;
+                case sym.MOD:             message = "SOBRA (%) inesperado";                                break;
+                case sym.NOT:             message = "GRITO (!) inesperado";                                break;
+                case sym.EQUALS:          message = "GEMELOS (==) inesperado";                             break;
+                case sym.NOT_EQUALS:      message = "DIVORCIO (!=) inesperado";                            break;
+                case sym.LESS_THAN:       message = "PICO (<) inesperado";                                 break;
+                case sym.GREATER_THAN:    message = "BOCA (>) inesperado";                                 break;
+                case sym.LESS_EQUAL:      message = "BASE (<=) inesperado";                                break;
+                case sym.GREATER_EQUAL:   message = "TECHO (>=) inesperado";                               break;
+                case sym.AND:             message = "CADENA (&&) inesperado";                              break;
+                case sym.OR:              message = "VALLAS (||) inesperado";                              break;
+                case sym.INCREMENT:       message = "CRUZ_CRUZ (++) inesperado";                           break;
+                case sym.DECREMENT:       message = "RAYA_RAYA (--) inesperado";                           break;
+                case sym.PLUS_ASSIGN:     message = "CRUZ_DAR (+=) inesperado";                            break;
+                case sym.MINUS_ASSIGN:    message = "RAYA_DAR (-=) inesperado";                            break;
+                case sym.MULTIPLY_ASSIGN: message = "ESTRELLA_DAR (*=) inesperado";                        break;
+                case sym.DIVIDE_ASSIGN:   message = "RAMPA_DAR (/=) inesperado";                           break;
+                case sym.MOD_ASSIGN:      message = "SOBRA_DAR (%=) inesperado";                           break;
+                case sym.EOF:             message = "Fin de archivo inesperado";                           break;
+                default:                  message = "Símbolo inesperado";                                  break;
             }
         }
 
-        addSyntaxError(errorLine, errorColumn, errorLexeme, message);
+        // Guardar el mensaje como PENDIENTE — no registrar todavía.
+        // recoverError() lo reemplazará con un mensaje más preciso.
+        // Si no viene ningún recoverError() (no hay producción 'error'
+        // que lo capture), flushPending() lo registrará tal cual.
+        pendingMessage = message;
+    }
+
+    /* ── Vuelca el mensaje pendiente si nadie lo reemplazó ──────── */
+    private void flushPending() {
+        if (pendingMessage != null) {
+            doRegister(errorLine > 0 ? errorLine : 1,
+                       errorColumn > 0 ? errorColumn : 1,
+                       errorLexeme != null ? errorLexeme : "desconocido",
+                       pendingMessage);
+            pendingMessage = null;
+        }
+    }
+
+    /* ── recoverError: llamado desde las acciones 'error' ───────── */
+    private void recoverError(String message) {
+        // Descartar el mensaje pendiente de syntax_error() — lo
+        // reemplazamos con el mensaje preciso de la producción.
+        pendingMessage = null;
+
+        int    line   = errorLine   > 0 ? errorLine   : 1;
+        int    column = errorColumn > 0 ? errorColumn : 1;
+        String lexeme = errorLexeme != null ? errorLexeme : "desconocido";
+
+        // Solo registrar si no es cascada de un error cercano
+        if (lastRecoveredLine < 0 || Math.abs(line - lastRecoveredLine) > 2) {
+            doRegister(line, column, lexeme, message);
+            lastRecoveredLine = line;
+        }
+
+        justRecovered = true;
+        errorLine = -1; errorColumn = -1; errorLexeme = null;
+    }
+
+    /* ── recoverErrorForced: para errores de nivel alto ─────────── */
+    // Clase sin cerrar, bloque sin cerrar, EOF — nunca se suprimen.
+    private void recoverErrorForced(String message) {
+        pendingMessage = null;
+        int    line   = errorLine   > 0 ? errorLine   : 1;
+        int    column = errorColumn > 0 ? errorColumn : 1;
+        String lexeme = errorLexeme != null ? errorLexeme : "desconocido";
+        // force=true: nunca se suprime por cascada — bloque/clase sin cerrar
+        // siempre deben aparecer independientemente de errores cercanos
+        doRegister(line, column, lexeme, message, true);
+        lastRecoveredLine = line;
+        justRecovered = true;
+        errorLine = -1; errorColumn = -1; errorLexeme = null;
     }
 
     @Override
     public void unrecovered_syntax_error(Symbol cur_token) throws Exception {
-        String lex  = (errorLexeme != null) ? errorLexeme : "EOF";
-        int    line = (errorLine   > 0)     ? errorLine   : normalizeLine(cur_token != null ? cur_token.left  : 1);
-        int    col  = (errorColumn > 0)     ? errorColumn : normalizeColumn(cur_token != null ? cur_token.right : 1);
-        addSyntaxError(line, col, lex, "Error sintáctico no recuperable");
+        flushPending();
+        String lex  = errorLexeme != null ? errorLexeme : resolveLexeme(cur_token);
+        int    line = errorLine > 0 ? errorLine : normalizeLine(cur_token != null ? cur_token.left  : 1);
+        int    col  = errorColumn > 0 ? errorColumn : normalizeCol(cur_token != null ? cur_token.right : 1);
+        lastRecoveredLine = -1;
+        doRegister(line, col, lex, "Error sintáctico no recuperable", true);
         throw new Exception("Error sintáctico no recuperable");
     }
 
     @Override
     public void report_error(String message, Object info) {
-        if (info instanceof Symbol) {
-            addSyntaxError((Symbol) info, message);
-        } else {
-            addSyntaxError(1, 1, "desconocido", message);
-        }
+        if (info instanceof Symbol) addSyntaxError((Symbol) info, message);
+        else addSyntaxError(1, 1, "desconocido", message);
     }
 
     @Override
@@ -387,60 +430,9 @@ parser code {:
         throw new Exception(message);
     }
 
-    /**
-     * Llamar desde las acciones de las producciones 'error' del grammar.
-     *
-     * Usa la posición guardada en errorLine/errorColumn (posición real del
-     * error original) en lugar de eleft/eright (posición del token de
-     * sincronización, que puede estar lejos).
-     * Activa justRecovered para que el siguiente syntax_error() automático
-     * de CUP sea descartado.
-     *
-     * Cascada: cuando break/continue sin FRENO disparan también un error
-     * en el for que los contiene, el segundo error ocurre en la misma
-     * línea del for (línea del token vuelta). Lo suprimimos comparando
-     * con lastRecoveredLine: si ya reportamos un error de recuperación
-     * muy cercano (dentro de ±2 líneas), el nuevo es cascada y se ignora.
-     */
-    private int lastRecoveredLine = -1;
-
-    private void recoverError(String message) {
-        int    line   = (errorLine   > 0) ? errorLine   : 1;
-        int    column = (errorColumn > 0) ? errorColumn : 1;
-        String lexeme = (errorLexeme != null && !errorLexeme.isBlank())
-                        ? errorLexeme : "desconocido";
-
-        // Suprimir errores en cascada: si ya registramos un error de
-        // recuperación muy cercano en líneas y el nuevo tiene lexema
-        // diferente (no es duplicado exacto), es probable cascada.
-        // Se usa un margen de 5 líneas para cubrir bloques anidados.
-        boolean esCascada = (lastRecoveredLine > 0)
-                         && (Math.abs(line - lastRecoveredLine) <= 5)
-                         && !syntaxErrors.isEmpty()
-                         && !syntaxErrors.get(syntaxErrors.size()-1).message.equals(message);
-
-        if (!esCascada) {
-            addSyntaxError(line, column, lexeme, message);
-            lastRecoveredLine = line;
-        }
-
-        justRecovered = true;
-        errorLine   = -1;
-        errorColumn = -1;
-        errorLexeme = null;
-    }
-
-    /**
-     * Versión que fuerza el registro ignorando la supresión de cascada.
-     * Usar para errores de nivel superior (clase sin cerrar, EOF, etc.)
-     * donde la cascada no aplica.
-     */
-    private void recoverErrorForced(String message) {
-        lastRecoveredLine = -1;   // resetear para que no suprima este
-        recoverError(message);
-    }
-
-    // ── Utilidades de generación C++ ──────────────────────────────────────
+    /* ══════════════════════════════════════════════════════════════
+       UTILIDADES DE GENERACIÓN C++
+       ══════════════════════════════════════════════════════════════ */
     private String cppType(String t) {
         if (t == null) return "";
         if ("string".equals(t)) return "std::string";
@@ -462,7 +454,7 @@ parser code {:
         StringBuilder sb = new StringBuilder();
         for (String line : lines) {
             if (line.isBlank()) sb.append("\n");
-            else                sb.append("    ").append(line).append("\n");
+            else sb.append("    ").append(line).append("\n");
         }
         return sb.toString();
     }
@@ -509,69 +501,47 @@ parser code {:
         }
 
         StringBuilder out = new StringBuilder();
-        out.append("#include <iostream>\n");
-        out.append("#include <string>\n");
-        out.append("#include <stdexcept>\n\n");
+        out.append("#include <iostream>\n#include <string>\n#include <stdexcept>\n\n");
         out.append("using namespace std;\n\n");
-
         if (globals.length()   > 0) out.append(globals).append("\n");
         if (classes.length()   > 0) out.append(classes);
         if (functions.length() > 0) out.append(functions);
-
-        out.append("int main() {\n");
-        out.append(indent(mainBody.toString()));
-        out.append("    return 0;\n");
-        out.append("}\n");
-
+        out.append("int main() {\n").append(indent(mainBody.toString()))
+           .append("    return 0;\n}\n");
         return out.toString();
     }
 
     private String paramsToCpp(List list) {
         List<String> parts = new ArrayList<>();
-        for (Object obj : list) {
-            ParamInfo p = (ParamInfo) obj;
-            parts.add(p.toCpp());
-        }
+        for (Object obj : list) parts.add(((ParamInfo) obj).toCpp());
         return join(parts, ", ");
     }
 
     private String argsToCpp(List list) { return join(list, ", "); }
 
-    /**
-     * Construye una declaración de variable.
-     * El Fragment resultante es LOCAL si estamos dentro de un bloque,
-     * GLOBAL en otro caso.
-     */
     private Fragment buildVarDecl(String acc, String type, String id, String expr, boolean isConst) {
         String base = (isConst ? "const " : "") + cppType(type) + " " + id;
         if (expr != null) base += " = " + expr;
         base += ";";
-
         String code = (acc != null) ? acc + ":\n" + base : base;
-        int kind = isLocalScope() ? Fragment.LOCAL : Fragment.GLOBAL;
-        return new Fragment(kind == Fragment.LOCAL ? Fragment.STATEMENT : Fragment.GLOBAL, code);
+        return new Fragment(isLocalScope() ? Fragment.STATEMENT : Fragment.GLOBAL, code);
     }
 
     private Fragment buildArrayDecl(String acc, String type, String id, Integer size, List vals) {
         StringBuilder sb = new StringBuilder();
-        sb.append(cppType(type)).append(" ").append(id)
-          .append("[").append(size).append("]");
+        sb.append(cppType(type)).append(" ").append(id).append("[").append(size).append("]");
         if (vals != null && !vals.isEmpty())
             sb.append(" = { ").append(join(vals, ", ")).append(" }");
         sb.append(";");
-
-        String code = (acc != null) ? acc + ":\n" + sb.toString() : sb.toString();
-        int kind = isLocalScope() ? Fragment.STATEMENT : Fragment.GLOBAL;
-        return new Fragment(kind, code);
+        String code = (acc != null) ? acc + ":\n" + sb : sb.toString();
+        return new Fragment(isLocalScope() ? Fragment.STATEMENT : Fragment.GLOBAL, code);
     }
 
     private String buildFunction(String acc, String retType, String id, List params, String block) {
         StringBuilder sb = new StringBuilder();
         if (acc != null) sb.append(acc).append(":\n");
-        sb.append(cppType(retType))
-          .append(" ").append(id)
-          .append("(").append(paramsToCpp(params)).append(") ")
-          .append(block);
+        sb.append(cppType(retType)).append(" ").append(id)
+          .append("(").append(paramsToCpp(params)).append(") ").append(block);
         return sb.toString();
     }
 
@@ -580,7 +550,9 @@ parser code {:
     }
 :};
 
-/* ── Terminales ──────────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════
+   TERMINALES
+   ══════════════════════════════════════════════════════════════════ */
 terminal PRINT, IF, ELSE, SWITCH, CASE, DEFAULT, FOR, WHILE, DO, BREAK;
 terminal CONTINUE, RETURN, INT, FLOAT, DOUBLE, CHAR, BOOL, VOID, STRING, CONST, CLASS, THIS, TRY, CATCH;
 terminal THROW, PUBLIC, PRIVATE, TRUE, FALSE, NULL, NEW;
@@ -589,20 +561,20 @@ terminal EQUALS, NOT_EQUALS, LESS_EQUAL, GREATER_EQUAL, AND, OR, ASSIGN, LESS_TH
 terminal PLUS, MINUS, MULTIPLY, DIVIDE, MOD, NOT;
 terminal PLUS_ASSIGN, MINUS_ASSIGN, MULTIPLY_ASSIGN, DIVIDE_ASSIGN, MOD_ASSIGN;
 terminal INCREMENT, DECREMENT, UMINUS;
-
 terminal String  IDENTIFIER;
 terminal String  STRING_LITERAL;
 terminal String  CHAR_LITERAL;
 terminal Integer INTEGER_LITERAL;
 terminal Double  DECIMAL_LITERAL;
 
-/* ── No terminales ───────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════
+   NO TERMINALES
+   ══════════════════════════════════════════════════════════════════ */
 non terminal String   program;
 non terminal List     statement_list;
 non terminal Fragment statement;
 non terminal String   block;
 non terminal          block_open;
-
 non terminal Fragment decl;
 non terminal Fragment decl_class;
 non terminal String   decl_constructors;
@@ -615,7 +587,6 @@ non terminal List     non_empty_param_list;
 non terminal ParamInfo param;
 non terminal String   type;
 non terminal List     array_values;
-
 non terminal Fragment if_stmt;
 non terminal Fragment while_stmt;
 non terminal Fragment for_stmt;
@@ -629,29 +600,27 @@ non terminal Fragment throw_stmt;
 non terminal Fragment switch_stmt;
 non terminal List     case_list;
 non terminal String   case_clause;
+non terminal String   expression;
+non terminal String   assign_expr;
+non terminal String   ternary_expr;
+non terminal String   or_expr;
+non terminal String   and_expr;
+non terminal String   eq_expr;
+non terminal String   rel_expr;
+non terminal String   add_expr;
+non terminal String   mul_expr;
+non terminal String   unary_expr;
+non terminal String   primary;
+non terminal String   literal;
+non terminal String   func_call;
+non terminal List     arg_list;
+non terminal List     non_empty_arg_list;
+non terminal String   lvalue;
+non terminal String   array_access;
 
-non terminal String expression;
-non terminal String assign_expr;
-non terminal String ternary_expr;
-non terminal String or_expr;
-non terminal String and_expr;
-non terminal String eq_expr;
-non terminal String rel_expr;
-non terminal String add_expr;
-non terminal String mul_expr;
-non terminal String unary_expr;
-non terminal String primary;
-non terminal String literal;
-non terminal String func_call;
-non terminal List   arg_list;
-non terminal List   non_empty_arg_list;
-non terminal String lvalue;
-/* FIX: eliminada la declaración huérfana de field_access — no tenía
-   ninguna producción asociada y causaba un warning de símbolo
-   no productivo en CUP. El acceso a campo vive en primary. */
-non terminal String array_access;
-
-/* ── Precedencias ────────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════
+   PRECEDENCIAS
+   ══════════════════════════════════════════════════════════════════ */
 precedence right ASSIGN, PLUS_ASSIGN, MINUS_ASSIGN, MULTIPLY_ASSIGN, DIVIDE_ASSIGN, MOD_ASSIGN;
 precedence right QUESTION, COLON;
 precedence left  OR;
@@ -667,300 +636,234 @@ precedence left  INCREMENT, DECREMENT;
 
 start with program;
 
-/* ════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════
    PROGRAMA
-   ════════════════════════════════════════════════════════════════════════ */
+   ══════════════════════════════════════════════════════════════════ */
+program ::= statement_list:s {: RESULT = buildProgram(s); :} ;
 
-program ::= statement_list:s
-          {: RESULT = buildProgram(s); :}
-          ;
-
-statement_list ::= statement_list:list statement:s
-                 {: list.add(s); RESULT = list; :}
-                 | /* empty */
-                 {: RESULT = new ArrayList(); :}
+statement_list ::= statement_list:list statement:s {: list.add(s); RESULT = list; :}
+                 | /* empty */ {: RESULT = new ArrayList(); :}
                  ;
 
-/* ════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════
    SENTENCIAS
-   ════════════════════════════════════════════════════════════════════════ */
-
-statement ::= decl:d
-            {: RESULT = d; :}
-            | decl_class:c
-            {: RESULT = c; :}
-            | if_stmt:i
-            {: RESULT = i; :}
-            | while_stmt:w
-            {: RESULT = w; :}
-            | for_stmt:f
-            {: RESULT = f; :}
-            | do_while_stmt:d
-            {: RESULT = d; :}
-            | switch_stmt:s
-            {: RESULT = s; :}
-            | try_stmt:t
-            {: RESULT = t; :}
-            | throw_stmt:t
-            {: RESULT = t; :}
+   ══════════════════════════════════════════════════════════════════ */
+statement ::= decl:d            {: RESULT = d; :}
+            | decl_class:c      {: RESULT = c; :}
+            | if_stmt:i         {: RESULT = i; :}
+            | while_stmt:w      {: RESULT = w; :}
+            | for_stmt:f        {: RESULT = f; :}
+            | do_while_stmt:d   {: RESULT = d; :}
+            | switch_stmt:s     {: RESULT = s; :}
+            | try_stmt:t        {: RESULT = t; :}
+            | throw_stmt:t      {: RESULT = t; :}
             | RETURN expression:e SEMICOLON
-            {: RESULT = new Fragment(Fragment.STATEMENT, "return " + e + ";"); :}
+              {: RESULT = new Fragment(Fragment.STATEMENT, "return " + e + ";"); :}
             | RETURN SEMICOLON
-            {: RESULT = new Fragment(Fragment.STATEMENT, "return;"); :}
+              {: RESULT = new Fragment(Fragment.STATEMENT, "return;"); :}
             | RETURN:r expression:e error
-            {:
-                saveErrorPosition(rleft, rright, "vonos");
-                recoverError("Falta FRENO después de vonos (return)");
-                RESULT = new Fragment(Fragment.STATEMENT, "return " + e + ";");
-            :}
-            | BREAK:b SEMICOLON
-            {: RESULT = new Fragment(Fragment.STATEMENT, "break;"); :}
+              {: savePos(rleft, rright, "vonos");
+                 recoverError("Falta FRENO después de vonos (return)");
+                 RESULT = new Fragment(Fragment.STATEMENT, "return " + e + ";"); :}
+            | BREAK SEMICOLON
+              {: RESULT = new Fragment(Fragment.STATEMENT, "break;"); :}
             | BREAK:b error
-            {:
-                saveErrorPosition(bleft, bright, "cuaje");
-                recoverError("Falta FRENO después de cuaje (break)");
-                RESULT = new Fragment(Fragment.STATEMENT, "break;");
-            :}
+              {: savePos(bleft, bright, "cuaje");
+                 recoverError("Falta FRENO después de cuaje (break)");
+                 RESULT = new Fragment(Fragment.STATEMENT, "break;"); :}
             | CONTINUE SEMICOLON
-            {: RESULT = new Fragment(Fragment.STATEMENT, "continue;"); :}
+              {: RESULT = new Fragment(Fragment.STATEMENT, "continue;"); :}
             | CONTINUE:c error
-            {:
-                saveErrorPosition(cleft, cright, "chanin");
-                recoverError("Falta FRENO después de chanin (continue)");
-                RESULT = new Fragment(Fragment.STATEMENT, "continue;");
-            :}
+              {: savePos(cleft, cright, "chanin");
+                 recoverError("Falta FRENO después de chanin (continue)");
+                 RESULT = new Fragment(Fragment.STATEMENT, "continue;"); :}
             | PRINT LEFT_PAREN expression:e RIGHT_PAREN SEMICOLON
-            {: RESULT = new Fragment(Fragment.STATEMENT, "std::cout << " + e + " << std::endl;"); :}
+              {: RESULT = new Fragment(Fragment.STATEMENT, "std::cout << " + e + " << std::endl;"); :}
             | PRINT:p LEFT_PAREN expression:e RIGHT_PAREN error
-            {:
-                saveErrorPosition(pleft, pright, "chotear");
-                recoverError("Falta FRENO después de chotear (print)");
-                RESULT = new Fragment(Fragment.STATEMENT, "std::cout << " + e + " << std::endl;");
-            :}
+              {: savePos(pleft, pright, "chotear");
+                 recoverError("Falta FRENO después de chotear (print)");
+                 RESULT = new Fragment(Fragment.STATEMENT, "std::cout << " + e + " << std::endl;"); :}
             | PRINT:p LEFT_PAREN error RIGHT_PAREN SEMICOLON
-            {:
-                saveErrorPosition(pleft, pright, "chotear");
-                recoverError("Expresión inválida en chotear (print)");
-                RESULT = new Fragment(Fragment.STATEMENT, "std::cout << \"\" << std::endl;");
-            :}
+              {: savePos(pleft, pright, "chotear");
+                 recoverError("Expresión inválida en chotear (print)");
+                 RESULT = new Fragment(Fragment.STATEMENT, "std::cout << \"\" << std::endl;"); :}
             | expression:e SEMICOLON
-            {: RESULT = new Fragment(Fragment.STATEMENT, e + ";"); :}
+              {: RESULT = new Fragment(Fragment.STATEMENT, e + ";"); :}
             | expression:e error
-            {:
-                // eleft apunta al inicio de la expresión, que es la línea correcta
-                saveErrorPosition(eleft, eright, e.length() > 20 ? e.substring(0,20) : e);
-                recoverError("Falta FRENO al final de la expresión");
-                RESULT = new Fragment(Fragment.STATEMENT, e + ";");
-            :}
+              {: savePos(eleft, eright, e.length() > 20 ? e.substring(0,20) : e);
+                 recoverError("Falta FRENO al final de la expresión");
+                 RESULT = new Fragment(Fragment.STATEMENT, e + ";"); :}
             | error SEMICOLON
-            {:
-                recoverError("Sentencia inválida — token inesperado en esta posición");
-                RESULT = new Fragment(Fragment.STATEMENT, "// sentencia inválida");
-            :}
+              {: recoverErrorForced("Sentencia inválida — token inesperado en esta posición");
+                 RESULT = new Fragment(Fragment.STATEMENT, "// sentencia inválida"); :}
             ;
 
-/* ════════════════════════════════════════════════════════════════════════
-   BLOQUE  —  actualiza blockDepth para distinguir ámbito local/global
-   ════════════════════════════════════════════════════════════════════════ */
-
-/*
- * block_open: no-terminal auxiliar vacío que consume LEFT_BRACE
- * y ejecuta enterBlock() UNA SOLA VEZ, compartido por ambas
- * producciones de block.
- * Esto elimina el conflicto reduce/reduce que causaban las
- * acciones intermedias anónimas NT$0 / NT$1 de CUP.
- */
-block_open ::= LEFT_BRACE
-             {: enterBlock(); :}
-             ;
+/* ══════════════════════════════════════════════════════════════════
+   BLOQUE
+   block_open: auxiliar para evitar conflicto reduce/reduce de CUP
+   cuando dos producciones tienen la misma acción intermedia.
+   ══════════════════════════════════════════════════════════════════ */
+block_open ::= LEFT_BRACE:lb
+               {: enterBlock();
+                  // Guardar posición del ALMA de apertura para que si el bloque
+                  // no se cierra, recoverErrorForced() reporte esta línea/columna
+                  // y no L1 (que ocurre cuando errorLine fue limpiado por otro error).
+                  if (errorLine < 1) {
+                      errorLine   = normalizeLine(lbleft);
+                      errorColumn = normalizeCol(lbright);
+                      errorLexeme = "ALMA";
+                  }
+               :}
+               ;
 
 block ::= block_open statement_list:s RIGHT_BRACE
-          {:
-              exitBlock();
-              RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}";
-          :}
+          {: exitBlock();
+             // Bloque cerrado correctamente — limpiar posición guardada por block_open
+             errorLine = -1; errorColumn = -1; errorLexeme = null;
+             RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}"; :}
         | block_open statement_list:s error:e
-          {:
-              exitBlock();
-              recoverErrorForced("Falta CUERPO (}) para cerrar el bloque");
-              RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}";
-          :}
+          {: exitBlock();
+             // Si errorLine no fue capturado, usar posición del token error
+             if (errorLine < 1) {
+                 errorLine   = normalizeLine(eleft);
+                 errorColumn = normalizeCol(eright);
+                 errorLexeme = "CUERPO";
+             }
+             recoverErrorForced("Falta CUERPO (}) para cerrar el bloque");
+             RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}"; :}
         ;
 
-/* ════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════
    MODIFICADORES DE ACCESO
-   ════════════════════════════════════════════════════════════════════════ */
-
+   ══════════════════════════════════════════════════════════════════ */
 access_modifier ::= PUBLIC  {: RESULT = "public"; :}
                   | PRIVATE {: RESULT = "private"; :}
                   ;
 
-/* ════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════
    DECLARACIONES
-   ════════════════════════════════════════════════════════════════════════ */
-
+   ══════════════════════════════════════════════════════════════════ */
 decl ::= access_modifier:acc type:t IDENTIFIER:id SEMICOLON
-       {: RESULT = buildVarDecl(acc, t, id, null, false); :}
+         {: RESULT = buildVarDecl(acc, t, id, null, false); :}
        | access_modifier:acc type:t IDENTIFIER:id ASSIGN expression:e SEMICOLON
-       {: RESULT = buildVarDecl(acc, t, id, e, false); :}
+         {: RESULT = buildVarDecl(acc, t, id, e, false); :}
        | type:t IDENTIFIER:id SEMICOLON
-       {: RESULT = buildVarDecl(null, t, id, null, false); :}
+         {: RESULT = buildVarDecl(null, t, id, null, false); :}
        | type:t IDENTIFIER:id ASSIGN expression:e SEMICOLON
-       {: RESULT = buildVarDecl(null, t, id, e, false); :}
-       /*
-        * FIX posición: cuando falta FRENO al declarar, CUP ya consumió
-        * el primer token de la siguiente línea como lookahead.
-        * idleft/idright apuntan al IDENTIFIER de la línea real del error.
-        */
+         {: RESULT = buildVarDecl(null, t, id, e, false); :}
        | type:t IDENTIFIER:id ASSIGN expression:e error
-       {:
-           saveErrorPosition(idleft, idright, id);
-           recoverError("Falta FRENO al declarar la variable '" + id + "'");
-           RESULT = buildVarDecl(null, t, id, e, false);
-       :}
+         {: savePos(idleft, idright, id);
+            recoverError("Falta FRENO al declarar la variable '" + id + "'");
+            RESULT = buildVarDecl(null, t, id, e, false); :}
        | access_modifier:acc type:t IDENTIFIER:id ASSIGN expression:e error
-       {:
-           saveErrorPosition(idleft, idright, id);
-           recoverError("Falta FRENO al declarar la variable '" + id + "'");
-           RESULT = buildVarDecl(acc, t, id, e, false);
-       :}
-       /*
-        * FIX ERROR 1 duplicado: cuando falta todo (DAR y FRENO), el parser
-        * entra en pánico en 'type IDENTIFIER' y no llega a reducir la
-        * expresión. Esta producción captura ese caso directamente usando
-        * la posición del IDENTIFIER (línea real) y evita que 'error SEMICOLON'
-        * en statement genere un segundo error en la línea siguiente.
-        */
+         {: savePos(idleft, idright, id);
+            recoverError("Falta FRENO al declarar la variable '" + id + "'");
+            RESULT = buildVarDecl(acc, t, id, e, false); :}
        | type:t IDENTIFIER:id error
-       {:
-           saveErrorPosition(idleft, idright, id);
-           recoverError("Falta DAR (=) o FRENO al declarar la variable '" + id + "'");
-           RESULT = buildVarDecl(null, t, id, null, false);
-       :}
+         {: savePos(idleft, idright, id);
+            recoverError("Falta DAR (=) o FRENO al declarar la variable '" + id + "'");
+            RESULT = buildVarDecl(null, t, id, null, false); :}
        | CONST type:t IDENTIFIER:id ASSIGN expression:e SEMICOLON
-       {: RESULT = buildVarDecl(null, t, id, e, true); :}
+         {: RESULT = buildVarDecl(null, t, id, e, true); :}
        | CONST type:t IDENTIFIER:id ASSIGN expression:e error
-       {:
-           saveErrorPosition(idleft, idright, id);
-           recoverError("Falta FRENO al declarar la constante '" + id + "'");
-           RESULT = buildVarDecl(null, t, id, e, true);
-       :}
-       /* Funciones con tipo de retorno void */
+         {: savePos(idleft, idright, id);
+            recoverError("Falta FRENO al declarar la constante '" + id + "'");
+            RESULT = buildVarDecl(null, t, id, e, true); :}
        | access_modifier:acc VOID IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
-       {: RESULT = new Fragment(Fragment.FUNCTION, buildFunction(acc, "void", id, p, b)); :}
+         {: RESULT = new Fragment(Fragment.FUNCTION, buildFunction(acc, "void", id, p, b)); :}
        | VOID IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
-       {: RESULT = new Fragment(Fragment.FUNCTION, buildFunction(null, "void", id, p, b)); :}
-       /* Funciones con tipo de retorno */
+         {: RESULT = new Fragment(Fragment.FUNCTION, buildFunction(null, "void", id, p, b)); :}
        | access_modifier:acc type:t IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
-       {: RESULT = new Fragment(Fragment.FUNCTION, buildFunction(acc, t, id, p, b)); :}
+         {: RESULT = new Fragment(Fragment.FUNCTION, buildFunction(acc, t, id, p, b)); :}
        | type:t IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
-       {: RESULT = new Fragment(Fragment.FUNCTION, buildFunction(null, t, id, p, b)); :}
-       /* Arrays */
+         {: RESULT = new Fragment(Fragment.FUNCTION, buildFunction(null, t, id, p, b)); :}
        | type:t IDENTIFIER:id LEFT_BRACKET INTEGER_LITERAL:size RIGHT_BRACKET SEMICOLON
-       {: RESULT = buildArrayDecl(null, t, id, size, null); :}
+         {: RESULT = buildArrayDecl(null, t, id, size, null); :}
        | access_modifier:acc type:t IDENTIFIER:id LEFT_BRACKET INTEGER_LITERAL:size RIGHT_BRACKET SEMICOLON
-       {: RESULT = buildArrayDecl(acc, t, id, size, null); :}
+         {: RESULT = buildArrayDecl(acc, t, id, size, null); :}
        | type:t IDENTIFIER:id LEFT_BRACKET INTEGER_LITERAL:size RIGHT_BRACKET ASSIGN LEFT_BRACE array_values:vals RIGHT_BRACE SEMICOLON
-       {: RESULT = buildArrayDecl(null, t, id, size, vals); :}
+         {: RESULT = buildArrayDecl(null, t, id, size, vals); :}
        | access_modifier:acc type:t IDENTIFIER:id LEFT_BRACKET INTEGER_LITERAL:size RIGHT_BRACKET ASSIGN LEFT_BRACE array_values:vals RIGHT_BRACE SEMICOLON
-       {: RESULT = buildArrayDecl(acc, t, id, size, vals); :}
+         {: RESULT = buildArrayDecl(acc, t, id, size, vals); :}
        ;
 
-/* ════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════
    CLASES
-   ════════════════════════════════════════════════════════════════════════ */
-
+   ══════════════════════════════════════════════════════════════════ */
 decl_class ::= CLASS IDENTIFIER:id LEFT_BRACE class_member_list:members RIGHT_BRACE
-             {: RESULT = new Fragment(Fragment.CLASS, "class " + id + " {\n" + joinClassMembers(members) + "};"); :}
+               {: RESULT = new Fragment(Fragment.CLASS,
+                    "class " + id + " {\n" + joinClassMembers(members) + "};"); :}
              | CLASS IDENTIFIER:id LEFT_BRACE class_member_list:members error:e
-             {:
-                 recoverErrorForced("Falta CUERPO (}) para cerrar la banda (clase) '" + id + "'");
-                 RESULT = new Fragment(Fragment.CLASS, "class " + id + " {\n" + joinClassMembers(members) + "};");
-             :}
+               {: if (errorLine < 1) {
+                      errorLine   = normalizeLine(eleft);
+                      errorColumn = normalizeCol(eright);
+                      errorLexeme = "CUERPO";
+                  }
+                  recoverErrorForced("Falta CUERPO (}) para cerrar la banda (clase) '" + id + "'");
+                  RESULT = new Fragment(Fragment.CLASS,
+                    "class " + id + " {\n" + joinClassMembers(members) + "};"); :}
              ;
 
-class_member_list ::= class_member_list:list class_member:m
-                    {: list.add(m); RESULT = list; :}
-                    | /* empty */
-                    {: RESULT = new ArrayList(); :}
+class_member_list ::= class_member_list:list class_member:m {: list.add(m); RESULT = list; :}
+                    | /* empty */ {: RESULT = new ArrayList(); :}
                     ;
 
-class_member ::= decl:d
-               {: RESULT = d.code; :}
-               | decl_constructors:c
-               {: RESULT = c; :}
+class_member ::= decl:d           {: RESULT = d.code; :}
+               | decl_constructors:c {: RESULT = c; :}
                ;
 
-/* Constructor */
 decl_constructors ::= IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
-                    {: RESULT = buildConstructor(id, p, b); :}
+                      {: RESULT = buildConstructor(id, p, b); :}
                     | IDENTIFIER:id LEFT_PAREN error RIGHT_PAREN block:b
-                    {:
-                        recoverError("Parámetros inválidos en el constructor '" + id + "'");
-                        RESULT = buildConstructor(id, new ArrayList(), b);
-                    :}
-                    | IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN error:e
-                    {:
-                        recoverError("Falta ALMA..CUERPO ({...}) en el constructor '" + id + "'");
-                        RESULT = buildConstructor(id, p, "{}");
-                    :}
+                      {: savePos(idleft, idright, id);
+                         recoverError("Parámetros inválidos en el constructor '" + id + "'");
+                         RESULT = buildConstructor(id, new ArrayList(), b); :}
+                    | IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN error
+                      {: recoverError("Falta ALMA..CUERPO ({...}) en el constructor '" + id + "'");
+                         RESULT = buildConstructor(id, p, "{}"); :}
                     ;
 
-/* ════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════
    NEW
-   ════════════════════════════════════════════════════════════════════════ */
-
+   ══════════════════════════════════════════════════════════════════ */
 new_expr ::= NEW IDENTIFIER:id LEFT_PAREN arg_list:args RIGHT_PAREN
-           {: RESULT = "new " + id + "(" + argsToCpp(args) + ")"; :}
+             {: RESULT = "new " + id + "(" + argsToCpp(args) + ")"; :}
            | NEW IDENTIFIER:id LEFT_PAREN error RIGHT_PAREN
-           {:
-               recoverError("Argumentos inválidos en estrenar (new)");
-               RESULT = "new " + id + "()";
-           :}
+             {: recoverError("Argumentos inválidos en estrenar (new)");
+                RESULT = "new " + id + "()"; :}
            ;
 
-/* ════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════
    ARRAYS
-   ════════════════════════════════════════════════════════════════════════ */
-
+   ══════════════════════════════════════════════════════════════════ */
 array_values ::= expression:e
-               {:
-                   List vals = new ArrayList();
-                   vals.add(e);
-                   RESULT = vals;
-               :}
+                 {: List vals = new ArrayList(); vals.add(e); RESULT = vals; :}
                | array_values:list COMMA expression:e
-               {: list.add(e); RESULT = list; :}
+                 {: list.add(e); RESULT = list; :}
                ;
 
-/* ════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════
    PARÁMETROS
-   ════════════════════════════════════════════════════════════════════════ */
-
+   ══════════════════════════════════════════════════════════════════ */
 param_list ::= non_empty_param_list:p {: RESULT = p; :}
              | /* empty */            {: RESULT = new ArrayList(); :}
              ;
 
 non_empty_param_list ::= non_empty_param_list:list COMMA param:p
-                       {: list.add(p); RESULT = list; :}
+                         {: list.add(p); RESULT = list; :}
                        | param:p
-                       {:
-                           List list = new ArrayList();
-                           list.add(p);
-                           RESULT = list;
-                       :}
+                         {: List l = new ArrayList(); l.add(p); RESULT = l; :}
                        ;
 
 param ::= type:t IDENTIFIER:id
-        {: RESULT = new ParamInfo(cppType(t), id, null); :}
+          {: RESULT = new ParamInfo(cppType(t), id, null); :}
         | type:t IDENTIFIER:id ASSIGN literal:l
-        {: RESULT = new ParamInfo(cppType(t), id, l); :}
+          {: RESULT = new ParamInfo(cppType(t), id, l); :}
         ;
 
-/* ════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════
    TIPOS
-   ════════════════════════════════════════════════════════════════════════ */
-
+   ══════════════════════════════════════════════════════════════════ */
 type ::= INT    {: RESULT = "int"; :}
        | FLOAT  {: RESULT = "float"; :}
        | DOUBLE {: RESULT = "double"; :}
@@ -969,70 +872,70 @@ type ::= INT    {: RESULT = "int"; :}
        | STRING {: RESULT = "string"; :}
        ;
 
-/* ════════════════════════════════════════════════════════════════════════
-   CONTROL DE FLUJO
-   ════════════════════════════════════════════════════════════════════════ */
-
+/* ══════════════════════════════════════════════════════════════════
+   IF
+   ══════════════════════════════════════════════════════════════════ */
 if_stmt ::= IF LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk
-          {: RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + thenBlk); :}
+            {: RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + thenBlk); :}
           | IF LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk ELSE block:elseBlk
-          {: RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + thenBlk + " else " + elseBlk); :}
+            {: RESULT = new Fragment(Fragment.STATEMENT,
+                 "if (" + cond + ") " + thenBlk + " else " + elseBlk); :}
           | IF LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk ELSE if_stmt:elseIf
-          {: RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + thenBlk + " else " + elseIf.code); :}
+            {: RESULT = new Fragment(Fragment.STATEMENT,
+                 "if (" + cond + ") " + thenBlk + " else " + elseIf.code); :}
           | IF:i LEFT_PAREN error RIGHT_PAREN block:b
-          {:
-              saveErrorPosition(ileft, iright, "simon");
-              recoverError("Condición inválida en simon (if)");
-              RESULT = new Fragment(Fragment.STATEMENT, "if (false) " + b);
-          :}
+            {: savePos(ileft, iright, "simon");
+               recoverError("Condición inválida en simon (if)");
+               RESULT = new Fragment(Fragment.STATEMENT, "if (false) " + b); :}
           | IF:i LEFT_PAREN expression:cond error block:b
-          {:
-              saveErrorPosition(ileft, iright, "simon");
-              recoverError("Falta RESPANDO ()) en la condición de simon (if)");
-              RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + b);
-          :}
+            {: savePos(ileft, iright, "simon");
+               recoverError("Falta RESPANDO ()) en la condición de simon (if)");
+               RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + b); :}
           ;
 
+/* ══════════════════════════════════════════════════════════════════
+   WHILE
+   ══════════════════════════════════════════════════════════════════ */
 while_stmt ::= WHILE LEFT_PAREN expression:cond RIGHT_PAREN block:b
-             {: RESULT = new Fragment(Fragment.STATEMENT, "while (" + cond + ") " + b); :}
+               {: RESULT = new Fragment(Fragment.STATEMENT, "while (" + cond + ") " + b); :}
              | WHILE:w LEFT_PAREN error RIGHT_PAREN block:b
-             {:
-                 saveErrorPosition(wleft, wright, "seguile");
-                 recoverError("Condición inválida en seguile (while)");
-                 RESULT = new Fragment(Fragment.STATEMENT, "while (false) " + b);
-             :}
+               {: savePos(wleft, wright, "seguile");
+                  recoverError("Condición inválida en seguile (while)");
+                  RESULT = new Fragment(Fragment.STATEMENT, "while (false) " + b); :}
              | WHILE:w LEFT_PAREN expression:cond error block:b
-             {:
-                 saveErrorPosition(wleft, wright, "seguile");
-                 recoverError("Falta RESPANDO ()) en la condición de seguile (while)");
-                 RESULT = new Fragment(Fragment.STATEMENT, "while (" + cond + ") " + b);
-             :}
+               {: savePos(wleft, wright, "seguile");
+                  recoverError("Falta RESPANDO ()) en la condición de seguile (while)");
+                  RESULT = new Fragment(Fragment.STATEMENT, "while (" + cond + ") " + b); :}
              ;
 
+/* ══════════════════════════════════════════════════════════════════
+   DO-WHILE
+   ══════════════════════════════════════════════════════════════════ */
 do_while_stmt ::= DO block:b WHILE LEFT_PAREN expression:cond RIGHT_PAREN SEMICOLON
-                {: RESULT = new Fragment(Fragment.STATEMENT, "do " + b + " while (" + cond + ");"); :}
-                | DO block:b WHILE:w LEFT_PAREN expression:cond RIGHT_PAREN error:e
-                {:
-                    saveErrorPosition(wleft, wright, "seguile");
-                    recoverError("Falta FRENO al final de dale...seguile (do-while)");
-                    RESULT = new Fragment(Fragment.STATEMENT, "do " + b + " while (" + cond + ");");
-                :}
+                  {: RESULT = new Fragment(Fragment.STATEMENT,
+                       "do " + b + " while (" + cond + ");"); :}
+                | DO block:b WHILE:w LEFT_PAREN expression:cond RIGHT_PAREN error
+                  {: savePos(wleft, wright, "seguile");
+                     recoverError("Falta FRENO al final de dale...seguile (do-while)");
+                     RESULT = new Fragment(Fragment.STATEMENT,
+                       "do " + b + " while (" + cond + ");"); :}
                 ;
 
+/* ══════════════════════════════════════════════════════════════════
+   FOR
+   ══════════════════════════════════════════════════════════════════ */
 for_stmt ::= FOR LEFT_PAREN for_init:init SEMICOLON expression:cond SEMICOLON for_update:update RIGHT_PAREN block:b
-           {: RESULT = new Fragment(Fragment.STATEMENT, "for (" + init + "; " + cond + "; " + update + ") " + b); :}
+             {: RESULT = new Fragment(Fragment.STATEMENT,
+                  "for (" + init + "; " + cond + "; " + update + ") " + b); :}
            | FOR:f LEFT_PAREN error RIGHT_PAREN block:b
-           {:
-               saveErrorPosition(fleft, fright, "vuelta");
-               recoverError("Estructura inválida en vuelta (for)");
-               RESULT = new Fragment(Fragment.STATEMENT, "for (;;) " + b);
-           :}
+             {: savePos(fleft, fright, "vuelta");
+                recoverError("Estructura inválida en vuelta (for)");
+                RESULT = new Fragment(Fragment.STATEMENT, "for (;;) " + b); :}
            | FOR:f LEFT_PAREN for_init:init SEMICOLON expression:cond SEMICOLON for_update:update error block:b
-           {:
-               saveErrorPosition(fleft, fright, "vuelta");
-               recoverError("Falta RESPANDO ()) en la estructura de vuelta (for)");
-               RESULT = new Fragment(Fragment.STATEMENT, "for (" + init + "; " + cond + "; " + update + ") " + b);
-           :}
+             {: savePos(fleft, fright, "vuelta");
+                recoverError("Falta RESPANDO ()) en la estructura de vuelta (for)");
+                RESULT = new Fragment(Fragment.STATEMENT,
+                  "for (" + init + "; " + cond + "; " + update + ") " + b); :}
            ;
 
 for_init ::= type:t IDENTIFIER:id ASSIGN expression:e {: RESULT = cppType(t) + " " + id + " = " + e; :}
@@ -1045,109 +948,88 @@ for_update ::= expression:e {: RESULT = e; :}
              | /* empty */  {: RESULT = ""; :}
              ;
 
-/* ════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════
    SWITCH
-   ════════════════════════════════════════════════════════════════════════ */
-
+   ══════════════════════════════════════════════════════════════════ */
 switch_stmt ::= SWITCH LEFT_PAREN expression:expr RIGHT_PAREN LEFT_BRACE case_list:c RIGHT_BRACE
-              {: RESULT = new Fragment(Fragment.STATEMENT, "switch (" + expr + ") {\n" + indent(join(c, "\n")) + "}"); :}
+                {: RESULT = new Fragment(Fragment.STATEMENT,
+                     "switch (" + expr + ") {\n" + indent(join(c, "\n")) + "}"); :}
               | SWITCH:s LEFT_PAREN error RIGHT_PAREN LEFT_BRACE case_list:c RIGHT_BRACE
-              {:
-                  saveErrorPosition(sleft, sright, "chiripa");
-                  recoverError("Expresión inválida en chiripa (switch)");
-                  RESULT = new Fragment(Fragment.STATEMENT, "switch (0) {\n" + indent(join(c, "\n")) + "}");
-              :}
+                {: savePos(sleft, sright, "chiripa");
+                   recoverError("Expresión inválida en chiripa (switch)");
+                   RESULT = new Fragment(Fragment.STATEMENT,
+                     "switch (0) {\n" + indent(join(c, "\n")) + "}"); :}
               | SWITCH:s LEFT_PAREN expression:expr error LEFT_BRACE case_list:c RIGHT_BRACE
-              {:
-                  saveErrorPosition(sleft, sright, "chiripa");
-                  recoverError("Falta RESPANDO ()) en la expresión de chiripa (switch)");
-                  RESULT = new Fragment(Fragment.STATEMENT, "switch (" + expr + ") {\n" + indent(join(c, "\n")) + "}");
-              :}
+                {: savePos(sleft, sright, "chiripa");
+                   recoverError("Falta RESPANDO ()) en la expresión de chiripa (switch)");
+                   RESULT = new Fragment(Fragment.STATEMENT,
+                     "switch (" + expr + ") {\n" + indent(join(c, "\n")) + "}"); :}
               ;
 
-case_list ::= case_list:list case_clause:c
-            {: list.add(c); RESULT = list; :}
-            | /* empty */
-            {: RESULT = new ArrayList(); :}
+case_list ::= case_list:list case_clause:c {: list.add(c); RESULT = list; :}
+            | /* empty */ {: RESULT = new ArrayList(); :}
             ;
 
 case_clause ::= CASE expression:e COLON statement_list:s
-              {: RESULT = "case " + e + ":\n" + indent(joinFragmentsAsBody(s)); :}
+                {: RESULT = "case " + e + ":\n" + indent(joinFragmentsAsBody(s)); :}
               | DEFAULT COLON statement_list:s
-              {: RESULT = "default:\n" + indent(joinFragmentsAsBody(s)); :}
+                {: RESULT = "default:\n" + indent(joinFragmentsAsBody(s)); :}
               | CASE:c error COLON statement_list:s
-              {:
-                  saveErrorPosition(cleft, cright, "wasa");
-                  recoverError("Expresión inválida en wasa (case)");
-                  RESULT = "case 0:\n" + indent(joinFragmentsAsBody(s));
-              :}
+                {: savePos(cleft, cright, "wasa");
+                   recoverError("Expresión inválida en wasa (case)");
+                   RESULT = "case 0:\n" + indent(joinFragmentsAsBody(s)); :}
               ;
 
-/* ════════════════════════════════════════════════════════════════════════
-   TRY / CATCH — admite múltiples bloques catch
-   ════════════════════════════════════════════════════════════════════════ */
-
+/* ══════════════════════════════════════════════════════════════════
+   TRY / CATCH — múltiples bloques catch
+   ══════════════════════════════════════════════════════════════════ */
 try_stmt ::= TRY block:tryBlk catch_list:catches
-           {:
-               StringBuilder sb = new StringBuilder("try " + tryBlk);
-               for (Object c : catches) sb.append((String) c);
-               RESULT = new Fragment(Fragment.STATEMENT, sb.toString());
-           :}
+             {: StringBuilder sb = new StringBuilder("try " + tryBlk);
+                for (Object c : catches) sb.append((String) c);
+                RESULT = new Fragment(Fragment.STATEMENT, sb.toString()); :}
            ;
 
-catch_list ::= catch_list:list catch_clause:c
-             {: list.add(c); RESULT = list; :}
+catch_list ::= catch_list:list catch_clause:c {: list.add(c); RESULT = list; :}
              | catch_clause:c
-             {:
-                 List list = new ArrayList();
-                 list.add(c);
-                 RESULT = list;
-             :}
+               {: List l = new ArrayList(); l.add(c); RESULT = l; :}
              ;
 
 catch_clause ::= CATCH LEFT_PAREN param:p RIGHT_PAREN block:b
-               {: RESULT = " catch (" + p.toCatchCpp() + ") " + b; :}
-               | CATCH LEFT_PAREN error RIGHT_PAREN block:b
-               {:
-                   recoverError("Parámetro inválido en atrapalo (catch)");
-                   RESULT = " catch (const std::exception& ex) " + b;
-               :}
-               | CATCH LEFT_PAREN param:p RIGHT_PAREN error:e
-               {:
-                   recoverError("Falta ALMA..CUERPO ({...}) en atrapalo (catch)");
-                   RESULT = " catch (" + p.toCatchCpp() + ") {}";
-               :}
+                 {: RESULT = " catch (" + p.toCatchCpp() + ") " + b; :}
+               | CATCH:c LEFT_PAREN error RIGHT_PAREN block:b
+                 {: savePos(cleft, cright, "atrapalo");
+                    recoverError("Parámetro inválido en atrapalo (catch)");
+                    RESULT = " catch (const std::exception& ex) " + b; :}
+               | CATCH LEFT_PAREN param:p RIGHT_PAREN error
+                 {: recoverError("Falta ALMA..CUERPO ({...}) en atrapalo (catch)");
+                    RESULT = " catch (" + p.toCatchCpp() + ") {}"; :}
                ;
 
-/* ════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════
    THROW
-   ════════════════════════════════════════════════════════════════════════ */
-
+   ══════════════════════════════════════════════════════════════════ */
 throw_stmt ::= THROW expression:e SEMICOLON
-             {: RESULT = new Fragment(Fragment.STATEMENT, "throw " + e + ";"); :}
+               {: RESULT = new Fragment(Fragment.STATEMENT, "throw " + e + ";"); :}
              | THROW:t expression:e error
-             {:
-                 saveErrorPosition(tleft, tright, "morongazo");
-                 recoverError("Falta FRENO después de morongazo (throw)");
-                 RESULT = new Fragment(Fragment.STATEMENT, "throw " + e + ";");
-             :}
+               {: savePos(tleft, tright, "morongazo");
+                  recoverError("Falta FRENO después de morongazo (throw)");
+                  RESULT = new Fragment(Fragment.STATEMENT, "throw " + e + ";"); :}
              ;
 
-/* ════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════
    EXPRESIONES
-   ════════════════════════════════════════════════════════════════════════ */
-
+   ══════════════════════════════════════════════════════════════════ */
 expression ::= assign_expr:e {: RESULT = e; :} ;
 
-assign_expr ::= lvalue:l ASSIGN      assign_expr:r {: RESULT = l + " = "  + r; :}
-              | lvalue:l PLUS_ASSIGN  assign_expr:r {: RESULT = l + " += " + r; :}
-              | lvalue:l MINUS_ASSIGN assign_expr:r {: RESULT = l + " -= " + r; :}
+assign_expr ::= lvalue:l ASSIGN          assign_expr:r {: RESULT = l + " = "  + r; :}
+              | lvalue:l PLUS_ASSIGN     assign_expr:r {: RESULT = l + " += " + r; :}
+              | lvalue:l MINUS_ASSIGN    assign_expr:r {: RESULT = l + " -= " + r; :}
               | lvalue:l MULTIPLY_ASSIGN assign_expr:r {: RESULT = l + " *= " + r; :}
               | lvalue:l DIVIDE_ASSIGN   assign_expr:r {: RESULT = l + " /= " + r; :}
               | lvalue:l MOD_ASSIGN      assign_expr:r {: RESULT = l + " %= " + r; :}
-              | array_access:a ASSIGN      assign_expr:r {: RESULT = a + " = "  + r; :}
-              | array_access:a PLUS_ASSIGN  assign_expr:r {: RESULT = a + " += " + r; :}
-              | array_access:a MINUS_ASSIGN assign_expr:r {: RESULT = a + " -= " + r; :}
+              | array_access:a ASSIGN          assign_expr:r {: RESULT = a + " = "  + r; :}
+              | array_access:a PLUS_ASSIGN     assign_expr:r {: RESULT = a + " += " + r; :}
+              | array_access:a MINUS_ASSIGN    assign_expr:r {: RESULT = a + " -= " + r; :}
               | array_access:a MULTIPLY_ASSIGN assign_expr:r {: RESULT = a + " *= " + r; :}
               | array_access:a DIVIDE_ASSIGN   assign_expr:r {: RESULT = a + " /= " + r; :}
               | array_access:a MOD_ASSIGN      assign_expr:r {: RESULT = a + " %= " + r; :}
@@ -1156,10 +1038,10 @@ assign_expr ::= lvalue:l ASSIGN      assign_expr:r {: RESULT = l + " = "  + r; :
 
 ternary_expr ::= or_expr:o {: RESULT = o; :}
                | or_expr:c QUESTION expression:t COLON ternary_expr:f
-               {: RESULT = "(" + c + " ? " + t + " : " + f + ")"; :}
+                 {: RESULT = "(" + c + " ? " + t + " : " + f + ")"; :}
                ;
 
-or_expr  ::= or_expr:l  OR  and_expr:r {: RESULT = "(" + l + " || " + r + ")"; :}
+or_expr  ::= or_expr:l OR and_expr:r   {: RESULT = "(" + l + " || " + r + ")"; :}
            | and_expr:e {: RESULT = e; :}
            ;
 
@@ -1167,15 +1049,15 @@ and_expr ::= and_expr:l AND eq_expr:r  {: RESULT = "(" + l + " && " + r + ")"; :
            | eq_expr:e {: RESULT = e; :}
            ;
 
-eq_expr  ::= eq_expr:l EQUALS     rel_expr:r {: RESULT = "(" + l + " == " + r + ")"; :}
-           | eq_expr:l NOT_EQUALS  rel_expr:r {: RESULT = "(" + l + " != " + r + ")"; :}
+eq_expr  ::= eq_expr:l EQUALS    rel_expr:r {: RESULT = "(" + l + " == " + r + ")"; :}
+           | eq_expr:l NOT_EQUALS rel_expr:r {: RESULT = "(" + l + " != " + r + ")"; :}
            | rel_expr:e {: RESULT = e; :}
            ;
 
 rel_expr ::= rel_expr:l LESS_THAN     add_expr:r {: RESULT = "(" + l + " < "  + r + ")"; :}
-           | rel_expr:l GREATER_THAN  add_expr:r  {: RESULT = "(" + l + " > "  + r + ")"; :}
-           | rel_expr:l LESS_EQUAL    add_expr:r  {: RESULT = "(" + l + " <= " + r + ")"; :}
-           | rel_expr:l GREATER_EQUAL add_expr:r  {: RESULT = "(" + l + " >= " + r + ")"; :}
+           | rel_expr:l GREATER_THAN  add_expr:r {: RESULT = "(" + l + " > "  + r + ")"; :}
+           | rel_expr:l LESS_EQUAL    add_expr:r {: RESULT = "(" + l + " <= " + r + ")"; :}
+           | rel_expr:l GREATER_EQUAL add_expr:r {: RESULT = "(" + l + " >= " + r + ")"; :}
            | add_expr:e {: RESULT = e; :}
            ;
 
@@ -1184,81 +1066,53 @@ add_expr ::= add_expr:l PLUS  mul_expr:r {: RESULT = "(" + l + " + " + r + ")"; 
            | mul_expr:e {: RESULT = e; :}
            ;
 
-mul_expr ::= mul_expr:l MULTIPLY  unary_expr:r {: RESULT = "(" + l + " * " + r + ")"; :}
-           | mul_expr:l DIVIDE    unary_expr:r  {: RESULT = "(" + l + " / " + r + ")"; :}
-           | mul_expr:l MOD       unary_expr:r  {: RESULT = "(" + l + " % " + r + ")"; :}
+mul_expr ::= mul_expr:l MULTIPLY unary_expr:r {: RESULT = "(" + l + " * " + r + ")"; :}
+           | mul_expr:l DIVIDE   unary_expr:r {: RESULT = "(" + l + " / " + r + ")"; :}
+           | mul_expr:l MOD      unary_expr:r {: RESULT = "(" + l + " % " + r + ")"; :}
            | unary_expr:e {: RESULT = e; :}
            ;
 
 unary_expr ::= NOT       unary_expr:e {: RESULT = "(!" + e + ")"; :}
-             | MINUS     unary_expr:e {: RESULT = "(-" + e + ")"; :}    %prec UMINUS
+             | MINUS     unary_expr:e {: RESULT = "(-" + e + ")"; :} %prec UMINUS
              | INCREMENT unary_expr:e {: RESULT = "(++" + e + ")"; :}
              | DECREMENT unary_expr:e {: RESULT = "(--" + e + ")"; :}
              | primary:p {: RESULT = p; :}
              ;
 
-/* ════════════════════════════════════════════════════════════════════════
-   LVALUE
-   FIX: eliminado "primary DOT IDENTIFIER" para evitar conflicto con
-   primary. El acceso a campo vive únicamente en primary.
-   ════════════════════════════════════════════════════════════════════════ */
-
-lvalue ::= IDENTIFIER:id
-         {: RESULT = id; :}
-         | THIS DOT IDENTIFIER:id
-         {: RESULT = "this->" + id; :}
+lvalue ::= IDENTIFIER:id       {: RESULT = id; :}
+         | THIS DOT IDENTIFIER:id {: RESULT = "this->" + id; :}
          ;
 
-/* ════════════════════════════════════════════════════════════════════════
-   ARRAY ACCESS
-   ════════════════════════════════════════════════════════════════════════ */
-
 array_access ::= IDENTIFIER:id LEFT_BRACKET expression:index RIGHT_BRACKET
-               {: RESULT = id + "[" + index + "]"; :}
+                 {: RESULT = id + "[" + index + "]"; :}
                | IDENTIFIER:id LEFT_BRACKET error RIGHT_BRACKET
-               {:
-                   recoverError("Índice inválido entre CAJON..TAPA ([..]) en arreglo");
-                   RESULT = id + "[0]";
-               :}
+                 {: recoverError("Índice inválido entre CAJON..TAPA ([..]) en arreglo");
+                    RESULT = id + "[0]"; :}
                ;
 
-/* ════════════════════════════════════════════════════════════════════════
-   PRIMARY
-   El acceso a campo (DOT) vive aquí para no duplicarlo en lvalue.
-   ════════════════════════════════════════════════════════════════════════ */
-
-primary ::= literal:l          {: RESULT = l; :}
-          | IDENTIFIER:id      {: RESULT = id; :}
-          | array_access:a     {: RESULT = a; :}
-          | func_call:f        {: RESULT = f; :}
-          | new_expr:n         {: RESULT = n; :}
-          | THIS               {: RESULT = "this"; :}
-          | THIS DOT IDENTIFIER:id    {: RESULT = "this->" + id; :}
-          | THIS DOT func_call:f      {: RESULT = "this->" + f; :}
-          | primary:p DOT IDENTIFIER:id   {: RESULT = p + "." + id; :}
-          | primary:p DOT func_call:f     {: RESULT = p + "." + f; :}
-          | primary:p INCREMENT           {: RESULT = "(" + p + "++)"; :}
-          | primary:p DECREMENT           {: RESULT = "(" + p + "--)"; :}
-          | LEFT_PAREN expression:e RIGHT_PAREN
-          {: RESULT = "(" + e + ")"; :}
+primary ::= literal:l             {: RESULT = l; :}
+          | IDENTIFIER:id         {: RESULT = id; :}
+          | array_access:a        {: RESULT = a; :}
+          | func_call:f           {: RESULT = f; :}
+          | new_expr:n            {: RESULT = n; :}
+          | THIS                  {: RESULT = "this"; :}
+          | THIS DOT IDENTIFIER:id   {: RESULT = "this->" + id; :}
+          | THIS DOT func_call:f     {: RESULT = "this->" + f; :}
+          | primary:p DOT IDENTIFIER:id {: RESULT = p + "." + id; :}
+          | primary:p DOT func_call:f   {: RESULT = p + "." + f; :}
+          | primary:p INCREMENT         {: RESULT = "(" + p + "++)"; :}
+          | primary:p DECREMENT         {: RESULT = "(" + p + "--)"; :}
+          | LEFT_PAREN expression:e RIGHT_PAREN {: RESULT = "(" + e + ")"; :}
           | LEFT_PAREN expression:e error
-          {:
-              recoverError("Falta RESPANDO ()) en la expresión agrupada");
-              RESULT = "(" + e + ")";
-          :}
+            {: recoverError("Falta RESPANDO ()) en la expresión agrupada");
+               RESULT = "(" + e + ")"; :}
           ;
 
-/* ════════════════════════════════════════════════════════════════════════
-   LLAMADAS A FUNCIÓN
-   ════════════════════════════════════════════════════════════════════════ */
-
 func_call ::= IDENTIFIER:id LEFT_PAREN arg_list:args RIGHT_PAREN
-            {: RESULT = id + "(" + argsToCpp(args) + ")"; :}
+              {: RESULT = id + "(" + argsToCpp(args) + ")"; :}
             | IDENTIFIER:id LEFT_PAREN error RIGHT_PAREN
-            {:
-                recoverError("Argumentos inválidos en llamada a función '" + id + "'");
-                RESULT = id + "()";
-            :}
+              {: recoverError("Argumentos inválidos en llamada a función '" + id + "'");
+                 RESULT = id + "()"; :}
             ;
 
 arg_list ::= non_empty_arg_list:a {: RESULT = a; :}
@@ -1266,24 +1120,16 @@ arg_list ::= non_empty_arg_list:a {: RESULT = a; :}
            ;
 
 non_empty_arg_list ::= non_empty_arg_list:list COMMA expression:e
-                     {: list.add(e); RESULT = list; :}
+                       {: list.add(e); RESULT = list; :}
                      | expression:e
-                     {:
-                         List list = new ArrayList();
-                         list.add(e);
-                         RESULT = list;
-                     :}
+                       {: List l = new ArrayList(); l.add(e); RESULT = l; :}
                      ;
 
-/* ════════════════════════════════════════════════════════════════════════
-   LITERALES
-   ════════════════════════════════════════════════════════════════════════ */
-
-literal ::= INTEGER_LITERAL:i  {: RESULT = i.toString(); :}
-          | DECIMAL_LITERAL:d  {: RESULT = d.toString(); :}
-          | STRING_LITERAL:s   {: RESULT = s; :}
-          | CHAR_LITERAL:c     {: RESULT = c; :}
-          | TRUE               {: RESULT = "true"; :}
-          | FALSE              {: RESULT = "false"; :}
-          | NULL               {: RESULT = "nullptr"; :}
+literal ::= INTEGER_LITERAL:i {: RESULT = i.toString(); :}
+          | DECIMAL_LITERAL:d {: RESULT = d.toString(); :}
+          | STRING_LITERAL:s  {: RESULT = s; :}
+          | CHAR_LITERAL:c    {: RESULT = c; :}
+          | TRUE              {: RESULT = "true"; :}
+          | FALSE             {: RESULT = "false"; :}
+          | NULL              {: RESULT = "nullptr"; :}
           ;
