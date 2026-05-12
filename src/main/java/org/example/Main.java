@@ -6,10 +6,8 @@ import org.example.lexer.TokenType;
 import org.example.parser.LexerAdapter;
 import org.example.parser.Parser;
 import org.example.reports.HtmlReportsGenerator;
-import org.example.semantic.SemanticAnalyzer;
-import org.example.semantic.SemanticError;
-import org.example.semantic.SymbolInfo;
-import org.example.semantic.SymbolTable;
+import org.example.reports.SymbolInfo;
+import org.example.reports.SymbolTableGenerator;
 import org.example.utils.FileManager;
 
 import java.io.IOException;
@@ -104,18 +102,8 @@ public class Main {
             } else {
                 System.out.println("No se pudo generar el código C++.");
             }
-
-            SemanticAnalyzer analyzer = new SemanticAnalyzer();
-            analyzer.analyze(ast);
-
-            if (!analyzer.getErrors().isEmpty()) {
-                System.out.println("=== ERRORES SEMÁNTICOS ===");
-                for (SemanticError error : analyzer.getErrors()) {
-                    System.out.println(error);
-                }
-            } else {
-                System.out.println("Análisis semántico completado sin errores.");
-            }
+            SymbolTableGenerator tableGenerator = new SymbolTableGenerator();
+            List<SymbolInfo> symbols = tableGenerator.generate(tokens);
 
             FileManager.writeFile(
                     OUTPUT_DIR + "/output.cpp",

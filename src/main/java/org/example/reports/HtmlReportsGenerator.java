@@ -3,7 +3,7 @@ package org.example.reports;
 import org.example.lexer.LexicalError;
 import org.example.lexer.Token;
 import org.example.parser.Parser;
-import org.example.semantic.SymbolInfo;
+import org.example.semantic.SemanticError;
 import org.example.utils.FileManager;
 
 import java.io.IOException;
@@ -185,7 +185,7 @@ public class HtmlReportsGenerator {
                 html.append("<td>").append(i + 1).append("</td>");
                 html.append("<td>").append(escape(s.getName())).append("</td>");
                 html.append("<td>").append(escape(s.getCategory())).append("</td>");
-                html.append("<td>").append(escape(s.getDataType().toString())).append("</td>");
+                html.append("<td>").append(escape(s.getDataType())).append("</td>");
                 html.append("<td>").append(escape(s.getScope())).append("</td>");
                 html.append("<td>").append(s.getLine()).append("</td>");
                 html.append("<td>").append(s.getColumn()).append("</td>");
@@ -277,5 +277,58 @@ public class HtmlReportsGenerator {
                 .replace("&", "&amp;")
                 .replace("<", "&lt;")
                 .replace(">", "&gt;");
+    }
+
+    public static void generateSemanticErrorsReport(
+            String outputPath,
+            List<SemanticError> semanticErrors
+    ) throws IOException {
+
+        StringBuilder html = new StringBuilder();
+
+        html.append(getHeader("Bitácora de Errores Semánticos"));
+
+        html.append("<h1>Bitácora de Errores Semánticos</h1>");
+
+        html.append("<div class='info'>");
+        html.append("<p><strong>Fecha:</strong> ")
+                .append(getDate())
+                .append("</p>");
+        html.append("<p><strong>Total errores semánticos:</strong> ")
+                .append(semanticErrors.size())
+                .append("</p>");
+        html.append("</div>");
+
+        if (semanticErrors.isEmpty()) {
+            html.append("<div class='empty'>No se encontraron errores semánticos.</div>");
+        } else {
+            html.append("""
+                    <table>
+                        <tr>
+                            <th>No.</th>
+                            <th>Lexema</th>
+                            <th>Descripción</th>
+                            <th>Línea</th>
+                            <th>Columna</th>
+                        </tr>
+                    """);
+
+            for (int i = 0; i < semanticErrors.size(); i++) {
+                SemanticError error = semanticErrors.get(i);
+                html.append("<tr>");
+                html.append("<td>").append(i + 1).append("</td>");
+                html.append("<td>").append(escape(error.getLexeme())).append("</td>");
+                html.append("<td>").append(escape(error.getDescription())).append("</td>");
+                html.append("<td>").append(error.getLine()).append("</td>");
+                html.append("<td>").append(error.getColumn()).append("</td>");
+                html.append("</tr>\n");
+            }
+
+            html.append("</table>");
+        }
+
+        html.append(getFooter());
+
+        FileManager.writeFile(outputPath, html.toString());
     }
 }
