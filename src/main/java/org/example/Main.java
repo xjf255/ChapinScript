@@ -6,8 +6,8 @@ import org.example.lexer.TokenType;
 import org.example.parser.LexerAdapter;
 import org.example.parser.Parser;
 import org.example.reports.HtmlReportsGenerator;
-import org.example.reports.SymbolInfo;
 import org.example.reports.SymbolTableGenerator;
+import org.example.semantic.SymbolInfo;
 import org.example.utils.FileManager;
 
 import java.io.IOException;

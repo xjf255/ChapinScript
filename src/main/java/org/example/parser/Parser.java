@@ -1411,9 +1411,6 @@ public class Parser extends java_cup.runtime.lr_parser {
 
 
 
-    /* ══════════════════════════════════════════════════════════════
-       CLASES DE DATOS
-       ══════════════════════════════════════════════════════════════ */
     public static class SyntaxError {
         public final String type;
         public final String message;
@@ -1437,25 +1434,25 @@ public class Parser extends java_cup.runtime.lr_parser {
                    ", cerca de '" + lexeme + "' />";
         }
 
-      public String getType() {
-        return type;
-      }
+         public String getType() {
+           return type;
+         }
 
-      public String getMessage() {
-        return message;
-      }
+         public String getMessage() {
+           return message;
+         }
 
-      public int getLine() {
-        return line;
-      }
+         public int getLine() {
+           return line;
+         }
 
-      public int getColumn() {
-        return column;
-      }
+          public int getColumn() {
+            return column;
+          }
 
-      public String getLexeme() {
-        return lexeme;
-      }
+          public String getLexeme() {
+            return lexeme;
+          }
     }
 
     public static class Fragment {
@@ -1494,61 +1491,26 @@ public class Parser extends java_cup.runtime.lr_parser {
         }
     }
 
-    /* ══════════════════════════════════════════════════════════════
-       ESTADO DE CONTEXTO
-       ══════════════════════════════════════════════════════════════ */
     private int blockDepth = 0;
+    private int blockOpenLine = -1;
+    private int blockOpenColumn = -1;
     public void enterBlock() { blockDepth++; }
     public void exitBlock()  { if (blockDepth > 0) blockDepth--; }
     public boolean isLocalScope() { return blockDepth > 0; }
 
-    /* ══════════════════════════════════════════════════════════════
-       TABLA DE ERRORES
-       ══════════════════════════════════════════════════════════════ */
     private final List<SyntaxError> syntaxErrors = new ArrayList<>();
     public List<SyntaxError> getSyntaxErrors() { return syntaxErrors; }
 
-    /* ══════════════════════════════════════════════════════════════
-       ESTADO DE RECUPERACIÓN
-       ══════════════════════════════════════════════════════════════
-
-       El ciclo de vida de un error en CUP es:
-         1. syntax_error(tok)  → CUP detecta que tok no encaja
-         2. CUP descarta tokens hasta encontrar un token de sincronización
-         3. La acción de la producción 'error' se ejecuta
-
-       Problema A — DUPLICADO:
-         syntax_error() registra "Símbolo inesperado" (1)
-         La acción registra "Falta FRENO en X"        (2)  ← duplicado
-
-       Problema B — POSICIÓN INCORRECTA:
-         En el paso 2, CUP ya consumió tokens de líneas siguientes,
-         por lo que eleft/eright apuntan al token de sincronización,
-         no al error real.
-
-       Problema C — CASCADA:
-         Un error dentro de un bloque (break sin FRENO) dispara
-         también un error en el bloque contenedor (for/while).
-
-       Solución:
-         - justRecovered: bloquea el syntax_error() post-recuperación
-         - errorLine/Col/Lexeme: guarda posición ANTES del descarte
-         - pendingMessage: el mensaje de syntax_error() se guarda pero
-           NO se registra todavía; se registra solo si recoverError()
-           no viene a reemplazarlo con un mensaje más preciso.
-         - lastRecoveredLine: suprime cascadas cercanas
-    ══════════════════════════════════════════════════════════════ */
     private boolean justRecovered    = false;
     private int     errorLine        = -1;
     private int     errorColumn      = -1;
     private String  errorLexeme      = null;
-    private String  pendingMessage   = null;   // mensaje de syntax_error() en espera
-    private int     lastRecoveredLine = -1;    // última línea donde se registró un error
+    private String  pendingMessage   = null;
+    private int     lastRecoveredLine = -1;
 
     private int normalizeLine(int l)   { return l < 1 ? 1 : l; }
     private int normalizeCol(int c)    { return c < 1 ? 1 : c; }
 
-    /* ── Mapa sym → lexema ChapinScript ─────────────────────────── */
     private String symToLexeme(int s) {
         switch (s) {
             case sym.PRINT:           return "chotear";
@@ -1610,7 +1572,7 @@ public class Parser extends java_cup.runtime.lr_parser {
             case sym.QUESTION:        return "DUDA";
             case sym.COLON:           return "OJOS";
             case sym.LEFT_PAREN:      return "ABRAZO";
-            case sym.RIGHT_PAREN:     return "RESPANDO";
+            case sym.RIGHT_PAREN:     return "RESPALDO";
             case sym.LEFT_BRACE:      return "ALMA";
             case sym.RIGHT_BRACE:     return "CUERPO";
             case sym.LEFT_BRACKET:    return "CAJON";
@@ -1706,12 +1668,30 @@ public class Parser extends java_cup.runtime.lr_parser {
         // por si hay errores encadenados.
         if (justRecovered) {
             justRecovered = false;
-            savePos(cur_token);
             return;
         }
 
         // Guardar posición ANTES del descarte de pánico
         savePos(cur_token);
+
+        // ── Detección de bloque sin cerrar ─────────────────────────────────
+        // Si estamos dentro de un bloque (blockDepth > 0) y llega un token
+        // que solo puede aparecer en el nivel global, el bloque anterior
+        // nunca recibió su CUERPO. Registramos el error aquí con la posición
+        // del ALMA que lo abrió, antes de que CUP intente recuperarse.
+        if (cur_token != null && blockDepth > 0) {
+            boolean esTokenGlobal = cur_token.sym == sym.VOID
+                || cur_token.sym == sym.INT   || cur_token.sym == sym.FLOAT
+                || cur_token.sym == sym.DOUBLE || cur_token.sym == sym.CHAR
+                || cur_token.sym == sym.BOOL   || cur_token.sym == sym.STRING
+                || cur_token.sym == sym.CONST  || cur_token.sym == sym.CLASS
+                || cur_token.sym == sym.EOF;
+            if (esTokenGlobal && blockOpenLine > 0) {
+                doRegister(blockOpenLine, blockOpenColumn, "ALMA",
+                           "Falta CUERPO (}) para cerrar el bloque", true);
+                // No salir — dejar que CUP registre también la recuperación normal
+            }
+        }
 
         // Construir mensaje con nombres ChapinScript
         String message;
@@ -1721,7 +1701,7 @@ public class Parser extends java_cup.runtime.lr_parser {
             switch (cur_token.sym) {
                 case sym.SEMICOLON:       message = "FRENO inesperado";                                    break;
                 case sym.RIGHT_BRACE:     message = "CUERPO (}) inesperado";                               break;
-                case sym.RIGHT_PAREN:     message = "RESPANDO ()) inesperado";                             break;
+                case sym.RIGHT_PAREN:     message = "RESPALDO ()) inesperado";                             break;
                 case sym.LEFT_BRACE:      message = "ALMA ({) inesperada";                                 break;
                 case sym.LEFT_PAREN:      message = "ABRAZO (() inesperado";                               break;
                 case sym.LEFT_BRACKET:    message = "CAJON ([) inesperado";                                break;
@@ -1828,7 +1808,18 @@ public class Parser extends java_cup.runtime.lr_parser {
         // force=true: nunca se suprime por cascada — bloque/clase sin cerrar
         // siempre deben aparecer independientemente de errores cercanos
         doRegister(line, column, lexeme, message, true);
-        lastRecoveredLine = line;
+        lastRecoveredLine = -1;
+        justRecovered = true;
+        errorLine = -1; errorColumn = -1; errorLexeme = null;
+    }
+
+    private void recoverErrorNoSuppress(String message) {
+        pendingMessage = null;
+        int    line   = errorLine   > 0 ? errorLine   : 1;
+        int    column = errorColumn > 0 ? errorColumn : 1;
+        String lexeme = errorLexeme != null ? errorLexeme : "desconocido";
+        doRegister(line, column, lexeme, message, true); // force=true
+        // NO actualizamos lastRecoveredLine — no contaminar ventana de supresión
         justRecovered = true;
         errorLine = -1; errorColumn = -1; errorLexeme = null;
     }
@@ -2329,14 +2320,9 @@ class CUP$Parser$actions {
 		int lbright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		Object lb = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
 		 enterBlock();
-                  // Guardar posición del ALMA de apertura para que si el bloque
-                  // no se cierra, recoverErrorForced() reporte esta línea/columna
-                  // y no L1 (que ocurre cuando errorLine fue limpiado por otro error).
-                  if (errorLine < 1) {
-                      errorLine   = normalizeLine(lbleft);
-                      errorColumn = normalizeCol(lbright);
-                      errorLexeme = "ALMA";
-                  }
+                   blockOpenLine   = normalizeLine(lbleft);
+                   blockOpenColumn = normalizeCol(lbright);
+                   errorLexeme = "ALMA";
                
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("block_open",4, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
@@ -2350,8 +2336,8 @@ class CUP$Parser$actions {
 		int sright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		List s = (List)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
 		 exitBlock();
-             // Bloque cerrado correctamente — limpiar posición guardada por block_open
              errorLine = -1; errorColumn = -1; errorLexeme = null;
+             blockOpenLine = -1; blockOpenColumn = -1;
              RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}"; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("block",3, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
@@ -2368,12 +2354,18 @@ class CUP$Parser$actions {
 		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		Object e = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
 		 exitBlock();
-             // Si errorLine no fue capturado, usar posición del token error
-             if (errorLine < 1) {
+             // Usar la posición del ALMA que abrió el bloque — es más informativa
+             // que la posición del token que falló.
+             if (blockOpenLine > 0) {
+                 errorLine   = blockOpenLine;
+                 errorColumn = blockOpenColumn;
+                 errorLexeme = "ALMA";
+             } else if (errorLine < 1) {
                  errorLine   = normalizeLine(eleft);
                  errorColumn = normalizeCol(eright);
                  errorLexeme = "CUERPO";
              }
+             blockOpenLine = -1; blockOpenColumn = -1;
              recoverErrorForced("Falta CUERPO (}) para cerrar el bloque");
              RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}"; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("block",3, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
@@ -3150,7 +3142,7 @@ class CUP$Parser$actions {
 		int bright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		String b = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
 		 savePos(ileft, iright, "simon");
-               recoverError("Falta RESPANDO ()) en la condición de simon (if)");
+               recoverError("Falta RESPALDO ()) en la condición de simon (if)");
                RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + b); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("if_stmt",17, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
@@ -3202,7 +3194,7 @@ class CUP$Parser$actions {
 		int bright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		String b = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
 		 savePos(wleft, wright, "seguile");
-                  recoverError("Falta RESPANDO ()) en la condición de seguile (while)");
+                  recoverError("Falta RESPALDO ()) en la condición de seguile (while)");
                   RESULT = new Fragment(Fragment.STATEMENT, "while (" + cond + ") " + b); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("while_stmt",18, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
@@ -3228,6 +3220,9 @@ class CUP$Parser$actions {
           case 82: // do_while_stmt ::= DO block WHILE LEFT_PAREN expression RIGHT_PAREN error 
             {
               Fragment RESULT =null;
+		int dleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-6)).left;
+		int dright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-6)).right;
+		Object d = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-6)).value;
 		int bleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-5)).left;
 		int bright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-5)).right;
 		String b = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-5)).value;
@@ -3237,7 +3232,7 @@ class CUP$Parser$actions {
 		int condleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).left;
 		int condright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).right;
 		String cond = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-2)).value;
-		 savePos(wleft, wright, "seguile");
+		 savePos(dleft, dright, "seguile");
                      recoverError("Falta FRENO al final de dale...seguile (do-while)");
                      RESULT = new Fragment(Fragment.STATEMENT,
                        "do " + b + " while (" + cond + ");"); 
@@ -3304,7 +3299,7 @@ class CUP$Parser$actions {
 		int bright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		String b = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
 		 savePos(fleft, fright, "vuelta");
-                recoverError("Falta RESPANDO ()) en la estructura de vuelta (for)");
+                recoverError("Falta RESPALDO ()) en la estructura de vuelta (for)");
                 RESULT = new Fragment(Fragment.STATEMENT,
                   "for (" + init + "; " + cond + "; " + update + ") " + b); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("for_stmt",19, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-8)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
@@ -3434,7 +3429,7 @@ class CUP$Parser$actions {
 		int cright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		List c = (List)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
 		 savePos(sleft, sright, "chiripa");
-                   recoverError("Falta RESPANDO ()) en la expresión de chiripa (switch)");
+                   recoverError("Falta RESPALDO ()) en la expresión de chiripa (switch)");
                    RESULT = new Fragment(Fragment.STATEMENT,
                      "switch (" + expr + ") {\n" + indent(join(c, "\n")) + "}"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("switch_stmt",27, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-6)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
@@ -4234,7 +4229,7 @@ class CUP$Parser$actions {
 		int idleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)).left;
 		int idright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)).right;
 		String id = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-3)).value;
-		 recoverError("Índice inválido entre CAJON..TAPA ([..]) en arreglo");
+		 recoverErrorNoSuppress("Índice inválido entre CAJON..TAPA ([..]) en arreglo");
                     RESULT = id + "[0]"; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("array_access",46, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
@@ -4406,7 +4401,7 @@ class CUP$Parser$actions {
 		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		String e = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
-		 recoverError("Falta RESPANDO ()) en la expresión agrupada");
+		 recoverErrorNoSuppress("Falta RESPALDO ()) en la expresión agrupada");
                RESULT = "(" + e + ")"; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("primary",40, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }

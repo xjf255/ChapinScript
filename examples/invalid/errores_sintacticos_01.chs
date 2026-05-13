@@ -18,8 +18,8 @@ cabal b DAR 10 FRENO
 // ERROR 2: Falta FRENO después de print
 // Regla: PRINT LEFT_PAREN expression RIGHT_PAREN error
 // ══════════════════════════════════════════════════════════════
-nimais errorPrint ABRAZO RESPANDO ALMA
-    chotear ABRAZO "sin punto y coma" RESPANDO
+nimais errorPrint ABRAZO RESPALDO ALMA
+    chotear ABRAZO "sin punto y coma" RESPALDO
     cabal x DAR 1 FRENO
 CUERPO
 
@@ -28,9 +28,9 @@ CUERPO
 // ERROR 3: Llave de cierre de bloque faltante
 // Regla: block_open statement_list error
 // ══════════════════════════════════════════════════════════════
-nimais sinCerrar ABRAZO RESPANDO ALMA
+nimais sinCerrar ABRAZO RESPALDO ALMA
     cabal x DAR 1 FRENO
-    chotear ABRAZO x RESPANDO FRENO
+    chotear ABRAZO x RESPALDO FRENO
 // falta CUERPO aquí
 
 
@@ -38,9 +38,9 @@ nimais sinCerrar ABRAZO RESPANDO ALMA
 // ERROR 4: Condición inválida en IF (expresión vacía)
 // Regla: IF LEFT_PAREN error RIGHT_PAREN block
 // ══════════════════════════════════════════════════════════════
-nimais errorIf ABRAZO RESPANDO ALMA
-    simon ABRAZO RESPANDO ALMA
-        chotear ABRAZO "nunca" RESPANDO FRENO
+nimais errorIf ABRAZO RESPALDO ALMA
+    simon ABRAZO RESPALDO ALMA
+        chotear ABRAZO "nunca" RESPALDO FRENO
     CUERPO
 CUERPO
 
@@ -49,10 +49,10 @@ CUERPO
 // ERROR 5: Falta paréntesis de cierre en IF
 // Regla: IF LEFT_PAREN expression error block
 // ══════════════════════════════════════════════════════════════
-nimais errorIfParen ABRAZO RESPANDO ALMA
+nimais errorIfParen ABRAZO RESPALDO ALMA
     cabal n DAR 5 FRENO
     simon ABRAZO n BOCA 0 ALMA
-        chotear ABRAZO "positivo" RESPANDO FRENO
+        chotear ABRAZO "positivo" RESPALDO FRENO
     CUERPO
 CUERPO
 
@@ -61,8 +61,8 @@ CUERPO
 // ERROR 6: Condición inválida en WHILE
 // Regla: WHILE LEFT_PAREN error RIGHT_PAREN block
 // ══════════════════════════════════════════════════════════════
-nimais errorWhile ABRAZO RESPANDO ALMA
-    seguile ABRAZO RESPANDO ALMA
+nimais errorWhile ABRAZO RESPALDO ALMA
+    seguile ABRAZO RESPALDO ALMA
         cuaje FRENO
     CUERPO
 CUERPO
@@ -72,11 +72,11 @@ CUERPO
 // ERROR 7: Falta FRENO al final del do-while
 // Regla: DO block WHILE LEFT_PAREN expression RIGHT_PAREN error
 // ══════════════════════════════════════════════════════════════
-nimais errorDoWhile ABRAZO RESPANDO ALMA
+nimais errorDoWhile ABRAZO RESPALDO ALMA
     cabal i DAR 0 FRENO
     dale ALMA
         i CRUZ_CRUZ FRENO
-    CUERPO seguile ABRAZO i PICO 5 RESPANDO
+    CUERPO seguile ABRAZO i PICO 5 RESPALDO
     cabal x DAR 1 FRENO
 CUERPO
 
@@ -85,9 +85,9 @@ CUERPO
 // ERROR 8: Estructura inválida en FOR (faltan los ;)
 // Regla: FOR LEFT_PAREN error RIGHT_PAREN block
 // ══════════════════════════════════════════════════════════════
-nimais errorFor ABRAZO RESPANDO ALMA
-    vuelta ABRAZO cabal i DAR 0 RESPANDO ALMA
-        chotear ABRAZO i RESPANDO FRENO
+nimais errorFor ABRAZO RESPALDO ALMA
+    vuelta ABRAZO cabal i DAR 0 RESPALDO ALMA
+        chotear ABRAZO i RESPALDO FRENO
     CUERPO
 CUERPO
 
@@ -96,8 +96,8 @@ CUERPO
 // ERROR 9: Expresión inválida en SWITCH
 // Regla: SWITCH LEFT_PAREN error RIGHT_PAREN LEFT_BRACE ...
 // ══════════════════════════════════════════════════════════════
-nimais errorSwitch ABRAZO RESPANDO ALMA
-    chiripa ABRAZO RESPANDO ALMA
+nimais errorSwitch ABRAZO RESPALDO ALMA
+    chiripa ABRAZO RESPALDO ALMA
         wasa 1 OJOS
             cuaje FRENO
         porsiacaso OJOS
@@ -110,10 +110,10 @@ CUERPO
 // ERROR 10: CASE con expresión inválida
 // Regla: CASE error COLON statement_list
 // ══════════════════════════════════════════════════════════════
-nimais errorCase ABRAZO cabal op RESPANDO ALMA
-    chiripa ABRAZO op RESPANDO ALMA
+nimais errorCase ABRAZO cabal op RESPALDO ALMA
+    chiripa ABRAZO op RESPALDO ALMA
         wasa OJOS
-            chotear ABRAZO "caso malo" RESPANDO FRENO
+            chotear ABRAZO "caso malo" RESPALDO FRENO
             cuaje FRENO
         porsiacaso OJOS
             cuaje FRENO
@@ -125,7 +125,7 @@ CUERPO
 // ERROR 11: Falta FRENO después de RETURN
 // Regla: RETURN expression error
 // ══════════════════════════════════════════════════════════════
-cabal errorReturn ABRAZO RESPANDO ALMA
+cabal errorReturn ABRAZO RESPALDO ALMA
     vonos 42
 CUERPO
 
@@ -134,9 +134,9 @@ CUERPO
 // ERROR 12: Falta FRENO después de BREAK
 // Regla: BREAK error
 // ══════════════════════════════════════════════════════════════
-nimais errorBreak ABRAZO RESPANDO ALMA
-    vuelta ABRAZO cabal i DAR 0 FRENO i PICO 10 FRENO i CRUZ_CRUZ RESPANDO ALMA
-        simon ABRAZO i GEMELOS 5 RESPANDO ALMA
+nimais errorBreak ABRAZO RESPALDO ALMA
+    vuelta ABRAZO cabal i DAR 0 FRENO i PICO 10 FRENO i CRUZ_CRUZ RESPALDO ALMA
+        simon ABRAZO i GEMELOS 5 RESPALDO ALMA
             cuaje
         CUERPO
     CUERPO
@@ -147,9 +147,9 @@ CUERPO
 // ERROR 13: Falta FRENO después de CONTINUE
 // Regla: CONTINUE error
 // ══════════════════════════════════════════════════════════════
-nimais errorContinue ABRAZO RESPANDO ALMA
-    vuelta ABRAZO cabal i DAR 0 FRENO i PICO 10 FRENO i CRUZ_CRUZ RESPANDO ALMA
-        simon ABRAZO i GEMELOS 3 RESPANDO ALMA
+nimais errorContinue ABRAZO RESPALDO ALMA
+    vuelta ABRAZO cabal i DAR 0 FRENO i PICO 10 FRENO i CRUZ_CRUZ RESPALDO ALMA
+        simon ABRAZO i GEMELOS 3 RESPALDO ALMA
             chanin
         CUERPO
     CUERPO
@@ -160,7 +160,7 @@ CUERPO
 // ERROR 14: Falta FRENO después de THROW
 // Regla: THROW expression error
 // ══════════════════════════════════════════════════════════════
-nimais errorThrow ABRAZO RESPANDO ALMA
+nimais errorThrow ABRAZO RESPALDO ALMA
     morongazo "error sin freno"
 CUERPO
 
@@ -169,11 +169,11 @@ CUERPO
 // ERROR 15: Parámetro inválido en CATCH
 // Regla: CATCH LEFT_PAREN error RIGHT_PAREN block
 // ══════════════════════════════════════════════════════════════
-nimais errorCatch ABRAZO RESPANDO ALMA
+nimais errorCatch ABRAZO RESPALDO ALMA
     calale ALMA
         morongazo "algo" FRENO
-    CUERPO atrapalo ABRAZO RESPANDO ALMA
-        chotear ABRAZO "catch vacio" RESPANDO FRENO
+    CUERPO atrapalo ABRAZO RESPALDO ALMA
+        chotear ABRAZO "catch vacio" RESPALDO FRENO
     CUERPO
 CUERPO
 
@@ -182,9 +182,9 @@ CUERPO
 // ERROR 16: Argumentos inválidos en llamada a función
 // Regla: func_call IDENTIFIER LEFT_PAREN error RIGHT_PAREN
 // ══════════════════════════════════════════════════════════════
-nimais errorLlamada ABRAZO RESPANDO ALMA
-    cabal r DAR sumar ABRAZO SEMILLA RESPANDO FRENO
-    chotear ABRAZO r RESPANDO FRENO
+nimais errorLlamada ABRAZO RESPALDO ALMA
+    cabal r DAR sumar ABRAZO SEMILLA RESPALDO FRENO
+    chotear ABRAZO r RESPALDO FRENO
 CUERPO
 
 
@@ -192,10 +192,10 @@ CUERPO
 // ERROR 17: Falta paréntesis de cierre en expresión agrupada
 // Regla: LEFT_PAREN expression error
 // ══════════════════════════════════════════════════════════════
-nimais errorGrupo ABRAZO RESPANDO ALMA
+nimais errorGrupo ABRAZO RESPALDO ALMA
     cabal x DAR 5 FRENO
     cabal y DAR ABRAZO x CRUZ 3 FRENO
-    chotear ABRAZO y RESPANDO FRENO
+    chotear ABRAZO y RESPALDO FRENO
 CUERPO
 
 
@@ -203,10 +203,10 @@ CUERPO
 // ERROR 18: Índice inválido en acceso a arreglo
 // Regla: array_access IDENTIFIER LEFT_BRACKET error RIGHT_BRACKET
 // ══════════════════════════════════════════════════════════════
-nimais errorArreglo ABRAZO RESPANDO ALMA
+nimais errorArreglo ABRAZO RESPALDO ALMA
     cabal nums CAJON 5 TAPA FRENO
     cabal val DAR nums CAJON TAPA FRENO
-    chotear ABRAZO val RESPANDO FRENO
+    chotear ABRAZO val RESPALDO FRENO
 CUERPO
 
 
@@ -217,7 +217,7 @@ CUERPO
 banda SinCuerpo ALMA
     cabal valor FRENO
 
-    SinCuerpo ABRAZO cabal v RESPANDO
+    SinCuerpo ABRAZO cabal v RESPALDO
     cabal otroMetodo DAR 0 FRENO
 
 CUERPO
@@ -229,8 +229,8 @@ CUERPO
 // ══════════════════════════════════════════════════════════════
 banda ClaseSinCerrar ALMA
     barrio cabal dato FRENO
-    barrio nimais hacer ABRAZO RESPANDO ALMA
-        chotear ABRAZO "haciendo" RESPANDO FRENO
+    barrio nimais hacer ABRAZO RESPALDO ALMA
+        chotear ABRAZO "haciendo" RESPALDO FRENO
     CUERPO
 // falta CUERPO de la clase
 
@@ -242,7 +242,7 @@ banda ClaseSinCerrar ALMA
 banda ParamMalo ALMA
     cabal x FRENO
 
-    ParamMalo ABRAZO SEMILLA SEMILLA RESPANDO ALMA
+    ParamMalo ABRAZO SEMILLA SEMILLA RESPALDO ALMA
         vos ATOMO x DAR 0 FRENO
     CUERPO
 
@@ -253,9 +253,9 @@ CUERPO
 // ERROR 22: Sentencia inválida (token desconocido en posición de sentencia)
 // Regla: error SEMICOLON
 // ══════════════════════════════════════════════════════════════
-nimais errorSentencia ABRAZO RESPANDO ALMA
+nimais errorSentencia ABRAZO RESPALDO ALMA
     RAYA RAYA RAYA FRENO
-    chotear ABRAZO "continua" RESPANDO FRENO
+    chotear ABRAZO "continua" RESPALDO FRENO
 CUERPO
 
 
@@ -264,10 +264,10 @@ CUERPO
 // syntax_error con sym.ELSE — chapus debe aparecer DENTRO de una
 // función justo después de una sentencia, sin simon previo.
 // ══════════════════════════════════════════════════════════════
-nimais errorElse ABRAZO RESPANDO ALMA
+nimais errorElse ABRAZO RESPALDO ALMA
     cabal n DAR 5 FRENO
     chapus ALMA
-        chotear ABRAZO "else huerfano" RESPANDO FRENO
+        chotear ABRAZO "else huerfano" RESPALDO FRENO
     CUERPO
 CUERPO
 
@@ -276,7 +276,7 @@ CUERPO
 // ERROR 24: Fin de archivo inesperado
 // syntax_error con sym.EOF — el archivo termina dentro de una función
 // ══════════════════════════════════════════════════════════════
-nimais errorEOF ABRAZO RESPANDO ALMA
+nimais errorEOF ABRAZO RESPALDO ALMA
     cabal x DAR 10 FRENO
-    chotear ABRAZO x RESPANDO FRENO
+    chotear ABRAZO x RESPALDO FRENO
 // archivo termina aquí sin CUERPO ni nada más

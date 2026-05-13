@@ -75,7 +75,7 @@ public enum TokenType {
     QUESTION,           // DUDA
     COLON,              // OJOS
     LEFT_PAREN,         // ABRAZO
-    RIGHT_PAREN,        // RESPANDO
+    RIGHT_PAREN,        // RESPALDO
     LEFT_BRACE,         // ALMA
     RIGHT_BRACE,        // CUERPO
     LEFT_BRACKET,       // CAJON

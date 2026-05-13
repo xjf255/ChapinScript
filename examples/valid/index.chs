@@ -22,54 +22,54 @@ banda Persona ALMA
     caquero pisto salario FRENO
     caquero casaca activo FRENO
 
-    Persona ABRAZO chisme nom SEMILLA cabal ed SEMILLA pisto sal RESPANDO ALMA
+    Persona ABRAZO chisme nom SEMILLA cabal ed SEMILLA pisto sal RESPALDO ALMA
         vos ATOMO nombre DAR nom FRENO
         vos ATOMO edad   DAR ed  FRENO
         vos ATOMO salario DAR sal FRENO
         vos ATOMO activo  DAR deplano FRENO
     CUERPO
 
-    barrio nimais mostrar ABRAZO RESPANDO ALMA
-        chotear ABRAZO "Nombre : " CRUZ vos ATOMO nombre RESPANDO FRENO
-        chotear ABRAZO "Edad   : " CRUZ vos ATOMO edad   RESPANDO FRENO
-        chotear ABRAZO "Salario: " CRUZ vos ATOMO salario RESPANDO FRENO
-        simon ABRAZO vos ATOMO activo GEMELOS deplano RESPANDO ALMA
-            chotear ABRAZO "Estado : activo" RESPANDO FRENO
+    barrio nimais mostrar ABRAZO RESPALDO ALMA
+        chotear ABRAZO "Nombre : " CRUZ vos ATOMO nombre RESPALDO FRENO
+        chotear ABRAZO "Edad   : " CRUZ vos ATOMO edad   RESPALDO FRENO
+        chotear ABRAZO "Salario: " CRUZ vos ATOMO salario RESPALDO FRENO
+        simon ABRAZO vos ATOMO activo GEMELOS deplano RESPALDO ALMA
+            chotear ABRAZO "Estado : activo" RESPALDO FRENO
         CUERPO chapus ALMA
-            chotear ABRAZO "Estado : inactivo" RESPANDO FRENO
+            chotear ABRAZO "Estado : inactivo" RESPALDO FRENO
         CUERPO
     CUERPO
 
-    barrio cabal obtenerEdad ABRAZO RESPANDO ALMA
+    barrio cabal obtenerEdad ABRAZO RESPALDO ALMA
         vonos vos ATOMO edad FRENO
     CUERPO
 
-    caquero nimais desactivar ABRAZO RESPANDO ALMA
+    caquero nimais desactivar ABRAZO RESPALDO ALMA
         vos ATOMO activo DAR nel FRENO
     CUERPO
 
 CUERPO
 
 // ── Función con parámetros y retorno ─────────────────────────
-cabal sumar ABRAZO cabal a SEMILLA cabal b RESPANDO ALMA
+cabal sumar ABRAZO cabal a SEMILLA cabal b RESPALDO ALMA
     vonos a CRUZ b FRENO
 CUERPO
 
 // ── Función void con bucles ───────────────────────────────────
-nimais procesarArreglo ABRAZO cabal limite RESPANDO ALMA
+nimais procesarArreglo ABRAZO cabal limite RESPALDO ALMA
 
     cabal i DAR 0 FRENO
     cabal suma DAR 0 FRENO
 
     // for clásico
-    vuelta ABRAZO cabal j DAR 0 FRENO j PICO limite FRENO j DAR j CRUZ 1 RESPANDO ALMA
+    vuelta ABRAZO cabal j DAR 0 FRENO j PICO limite FRENO j DAR j CRUZ 1 RESPALDO ALMA
         numeros CAJON j TAPA DAR j ESTRELLA 2 FRENO
         suma DAR suma CRUZ numeros CAJON j TAPA FRENO
     CUERPO
 
     // while
-    seguile ABRAZO i PICO limite RESPANDO ALMA
-        simon ABRAZO i GEMELOS 3 RESPANDO ALMA
+    seguile ABRAZO i PICO limite RESPALDO ALMA
+        simon ABRAZO i GEMELOS 3 RESPALDO ALMA
             chanin FRENO
         CUERPO
         suma CRUZ_DAR i FRENO
@@ -80,48 +80,48 @@ nimais procesarArreglo ABRAZO cabal limite RESPANDO ALMA
     dale ALMA
         suma RAYA_DAR 1 FRENO
         i CRUZ_CRUZ FRENO
-    CUERPO seguile ABRAZO i PICO limite CRUZ 2 RESPANDO FRENO
+    CUERPO seguile ABRAZO i PICO limite CRUZ 2 RESPALDO FRENO
 
-    chotear ABRAZO "Suma final: " CRUZ suma RESPANDO FRENO
+    chotear ABRAZO "Suma final: " CRUZ suma RESPALDO FRENO
 CUERPO
 
 // ── Función con switch ────────────────────────────────────────
-nimais clasificar ABRAZO cabal valor RESPANDO ALMA
-    chiripa ABRAZO valor RESPANDO ALMA
+nimais clasificar ABRAZO cabal valor RESPALDO ALMA
+    chiripa ABRAZO valor RESPALDO ALMA
         wasa 1 OJOS
-            chotear ABRAZO "Uno" RESPANDO FRENO
+            chotear ABRAZO "Uno" RESPALDO FRENO
             cuaje FRENO
         wasa 2 OJOS
-            chotear ABRAZO "Dos" RESPANDO FRENO
+            chotear ABRAZO "Dos" RESPALDO FRENO
             cuaje FRENO
         wasa 3 OJOS
-            chotear ABRAZO "Tres" RESPANDO FRENO
+            chotear ABRAZO "Tres" RESPALDO FRENO
             cuaje FRENO
         porsiacaso OJOS
-            chotear ABRAZO "Otro valor" RESPANDO FRENO
+            chotear ABRAZO "Otro valor" RESPALDO FRENO
             cuaje FRENO
     CUERPO
 CUERPO
 
 // ── Función con try/catch y throw ────────────────────────────
-cabal dividir ABRAZO cabal a SEMILLA cabal b RESPANDO ALMA
-    simon ABRAZO b GEMELOS 0 RESPANDO ALMA
+cabal dividir ABRAZO cabal a SEMILLA cabal b RESPALDO ALMA
+    simon ABRAZO b GEMELOS 0 RESPALDO ALMA
         morongazo "Division por cero no permitida" FRENO
     CUERPO
     vonos a RAMPA b FRENO
 CUERPO
 
-nimais probarExcepciones ABRAZO RESPANDO ALMA
+nimais probarExcepciones ABRAZO RESPALDO ALMA
     calale ALMA
-        cabal res DAR dividir ABRAZO 10 SEMILLA 0 RESPANDO FRENO
-        chotear ABRAZO res RESPANDO FRENO
-    CUERPO atrapalo ABRAZO chisme err RESPANDO ALMA
-        chotear ABRAZO "Error capturado: " CRUZ err RESPANDO FRENO
+        cabal res DAR dividir ABRAZO 10 SEMILLA 0 RESPALDO FRENO
+        chotear ABRAZO res RESPALDO FRENO
+    CUERPO atrapalo ABRAZO chisme err RESPALDO ALMA
+        chotear ABRAZO "Error capturado: " CRUZ err RESPALDO FRENO
     CUERPO
 CUERPO
 
 // ── Función con operadores y ternario ────────────────────────
-nimais operadores ABRAZO RESPANDO ALMA
+nimais operadores ABRAZO RESPALDO ALMA
     cabal x DAR 10 FRENO
     cabal y DAR 3 FRENO
 
@@ -131,14 +131,14 @@ nimais operadores ABRAZO RESPANDO ALMA
     cabal divs  DAR x RAMPA y FRENO
     cabal mod   DAR x SOBRA y FRENO
 
-    casaca esMayor DAR ABRAZO x BOCA y RESPANDO DUDA deplano OJOS nel FRENO
+    casaca esMayor DAR ABRAZO x BOCA y RESPALDO DUDA deplano OJOS nel FRENO
 
-    chotear ABRAZO suma  RESPANDO FRENO
-    chotear ABRAZO resta RESPANDO FRENO
-    chotear ABRAZO mult  RESPANDO FRENO
-    chotear ABRAZO divs  RESPANDO FRENO
-    chotear ABRAZO mod   RESPANDO FRENO
-    chotear ABRAZO esMayor RESPANDO FRENO
+    chotear ABRAZO suma  RESPALDO FRENO
+    chotear ABRAZO resta RESPALDO FRENO
+    chotear ABRAZO mult  RESPALDO FRENO
+    chotear ABRAZO divs  RESPALDO FRENO
+    chotear ABRAZO mod   RESPALDO FRENO
+    chotear ABRAZO esMayor RESPALDO FRENO
 
     // Operadores compuestos
     x CRUZ_DAR 5 FRENO
@@ -150,68 +150,68 @@ nimais operadores ABRAZO RESPANDO ALMA
     // Incremento / decremento
     x CRUZ_CRUZ FRENO
     y RAYA_RAYA FRENO
-    chotear ABRAZO x RESPANDO FRENO
+    chotear ABRAZO x RESPALDO FRENO
 CUERPO
 
 // ── Función con lógica booleana ───────────────────────────────
-casaca evaluar ABRAZO cabal n RESPANDO ALMA
-    vonos ABRAZO n BOCA 0 RESPANDO CADENA ABRAZO n PICO 100 RESPANDO FRENO
+casaca evaluar ABRAZO cabal n RESPALDO ALMA
+    vonos ABRAZO n BOCA 0 RESPALDO CADENA ABRAZO n PICO 100 RESPALDO FRENO
 CUERPO
 
 // ── Función con cadenas ───────────────────────────────────────
-chisme construirMensaje ABRAZO chisme base SEMILLA cabal repeticiones RESPANDO ALMA
+chisme construirMensaje ABRAZO chisme base SEMILLA cabal repeticiones RESPALDO ALMA
     chisme resultado DAR "" FRENO
-    vuelta ABRAZO cabal i DAR 0 FRENO i PICO repeticiones FRENO i CRUZ_CRUZ RESPANDO ALMA
+    vuelta ABRAZO cabal i DAR 0 FRENO i PICO repeticiones FRENO i CRUZ_CRUZ RESPALDO ALMA
         resultado DAR resultado CRUZ base FRENO
     CUERPO
     vonos resultado FRENO
 CUERPO
 
 // ── Programa principal ────────────────────────────────────────
-nimais main ABRAZO RESPANDO ALMA
+nimais main ABRAZO RESPALDO ALMA
 
     // Uso de clase
-    Persona p DAR estrenar Persona ABRAZO "Juan" SEMILLA 25 SEMILLA 5000.0 RESPANDO FRENO
-    p ATOMO mostrar ABRAZO RESPANDO FRENO
+    Persona p DAR estrenar Persona ABRAZO "Juan" SEMILLA 25 SEMILLA 5000.0 RESPALDO FRENO
+    p ATOMO mostrar ABRAZO RESPALDO FRENO
 
     // Uso de funciones
-    cabal resultado DAR sumar ABRAZO 7 SEMILLA 8 RESPANDO FRENO
-    chotear ABRAZO "7 + 8 = " CRUZ resultado RESPANDO FRENO
+    cabal resultado DAR sumar ABRAZO 7 SEMILLA 8 RESPALDO FRENO
+    chotear ABRAZO "7 + 8 = " CRUZ resultado RESPALDO FRENO
 
-    procesarArreglo ABRAZO 5 RESPANDO FRENO
-    clasificar ABRAZO 2 RESPANDO FRENO
-    probarExcepciones ABRAZO RESPANDO FRENO
-    operadores ABRAZO RESPANDO FRENO
+    procesarArreglo ABRAZO 5 RESPALDO FRENO
+    clasificar ABRAZO 2 RESPALDO FRENO
+    probarExcepciones ABRAZO RESPALDO FRENO
+    operadores ABRAZO RESPALDO FRENO
 
     // Condicional con else-if encadenado
     cabal nota DAR 75 FRENO
-    simon ABRAZO nota TECHO 90 RESPANDO ALMA
-        chotear ABRAZO "Excelente" RESPANDO FRENO
-    CUERPO chapus simon ABRAZO nota TECHO 70 RESPANDO ALMA
-        chotear ABRAZO "Aprobado" RESPANDO FRENO
-    CUERPO chapus simon ABRAZO nota TECHO 60 RESPANDO ALMA
-        chotear ABRAZO "Regular" RESPANDO FRENO
+    simon ABRAZO nota TECHO 90 RESPALDO ALMA
+        chotear ABRAZO "Excelente" RESPALDO FRENO
+    CUERPO chapus simon ABRAZO nota TECHO 70 RESPALDO ALMA
+        chotear ABRAZO "Aprobado" RESPALDO FRENO
+    CUERPO chapus simon ABRAZO nota TECHO 60 RESPALDO ALMA
+        chotear ABRAZO "Regular" RESPALDO FRENO
     CUERPO chapus ALMA
-        chotear ABRAZO "Reprobado" RESPANDO FRENO
+        chotear ABRAZO "Reprobado" RESPALDO FRENO
     CUERPO
 
     // Booleanos y lógica
-    casaca valido DAR evaluar ABRAZO 50 RESPANDO FRENO
-    simon ABRAZO valido GEMELOS deplano RESPANDO ALMA
-        chotear ABRAZO "Valor dentro de rango" RESPANDO FRENO
+    casaca valido DAR evaluar ABRAZO 50 RESPALDO FRENO
+    simon ABRAZO valido GEMELOS deplano RESPALDO ALMA
+        chotear ABRAZO "Valor dentro de rango" RESPALDO FRENO
     CUERPO
 
     // Cadenas con tildes dentro del string (valido)
     chisme saludo DAR "Bienvenido al sistema de chapines" FRENO
-    chotear ABRAZO saludo RESPANDO FRENO
-    chotear ABRAZO construirMensaje ABRAZO "ha! " SEMILLA 3 RESPANDO RESPANDO FRENO
+    chotear ABRAZO saludo RESPALDO FRENO
+    chotear ABRAZO construirMensaje ABRAZO "ha! " SEMILLA 3 RESPALDO RESPALDO FRENO
 
     // Arreglo
     numeros CAJON 0 TAPA DAR 99 FRENO
-    chotear ABRAZO numeros CAJON 0 TAPA RESPANDO FRENO
+    chotear ABRAZO numeros CAJON 0 TAPA RESPALDO FRENO
 
     // Variable null
     Persona p2 DAR inutil FRENO
 
-    chotear ABRAZO "Programa finalizado correctamente" RESPANDO FRENO
+    chotear ABRAZO "Programa finalizado correctamente" RESPALDO FRENO
 CUERPO

@@ -889,7 +889,7 @@ public class Lexer {
             // fall through
           case 92: break;
           case 7: 
-            { /* consumir cualquier carácter, incluidas tildes */
+            { // consumir cualquier carácter, incluidas tildes
             } 
             // fall through
           case 93: break;
@@ -928,10 +928,6 @@ public class Lexer {
           case 12: 
             { yybegin(YYINITIAL);
                  String content = stringBuffer.toString();
-                 /*
-                  * Distinguir char literal (exactamente 1 codepoint Unicode
-                  * o 1 secuencia de escape) de un string multi-carácter.
-                  */
                  boolean isEscape = content.length() == 2 && content.charAt(0) == '\\';
                  boolean isSingle = content.codePointCount(0, content.length()) == 1;
                  if (isEscape || isSingle) {

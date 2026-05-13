@@ -130,7 +130,7 @@ COMMENT_LINE   = "//"[^\n]*
     "DUDA"     { return token(TokenType.QUESTION); }
     "OJOS"     { return token(TokenType.COLON); }
     "ABRAZO"   { return token(TokenType.LEFT_PAREN); }
-    "RESPANDO" { return token(TokenType.RIGHT_PAREN); }
+    "RESPALDO" { return token(TokenType.RIGHT_PAREN); }
     "ALMA"     { return token(TokenType.LEFT_BRACE); }
     "CUERPO"   { return token(TokenType.RIGHT_BRACE); }
     "CAJON"    { return token(TokenType.LEFT_BRACKET); }
