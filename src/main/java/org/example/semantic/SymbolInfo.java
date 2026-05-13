@@ -1,6 +1,7 @@
 package org.example.semantic;
 
 public class SymbolInfo {
+
     private final String name;
     private final String category;
     private final Type dataType;
@@ -9,7 +10,15 @@ public class SymbolInfo {
     private final int column;
     private final String value;
 
-    public SymbolInfo(String name, String category, Type dataType, String scope, int line, int column, String value) {
+    public SymbolInfo(
+            String name,
+            String category,
+            Type dataType,
+            String scope,
+            int line,
+            int column,
+            String value
+    ) {
         this.name = name;
         this.category = category;
         this.dataType = dataType;

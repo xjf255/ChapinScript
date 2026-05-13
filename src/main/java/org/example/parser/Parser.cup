@@ -5,9 +5,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 parser code {:
-    /* ══════════════════════════════════════════════════════════════
-       CLASES DE DATOS
-       ══════════════════════════════════════════════════════════════ */
     public static class SyntaxError {
         public final String type;
         public final String message;
@@ -30,6 +27,26 @@ parser code {:
                    ", columna " + column +
                    ", cerca de '" + lexeme + "' />";
         }
+
+         public String getType() {
+           return type;
+         }
+
+         public String getMessage() {
+           return message;
+         }
+
+         public int getLine() {
+           return line;
+         }
+
+          public int getColumn() {
+            return column;
+          }
+
+          public String getLexeme() {
+            return lexeme;
+          }
     }
 
     public static class Fragment {
@@ -68,61 +85,26 @@ parser code {:
         }
     }
 
-    /* ══════════════════════════════════════════════════════════════
-       ESTADO DE CONTEXTO
-       ══════════════════════════════════════════════════════════════ */
     private int blockDepth = 0;
+    private int blockOpenLine = -1;
+    private int blockOpenColumn = -1;
     public void enterBlock() { blockDepth++; }
     public void exitBlock()  { if (blockDepth > 0) blockDepth--; }
     public boolean isLocalScope() { return blockDepth > 0; }
 
-    /* ══════════════════════════════════════════════════════════════
-       TABLA DE ERRORES
-       ══════════════════════════════════════════════════════════════ */
     private final List<SyntaxError> syntaxErrors = new ArrayList<>();
     public List<SyntaxError> getSyntaxErrors() { return syntaxErrors; }
 
-    /* ══════════════════════════════════════════════════════════════
-       ESTADO DE RECUPERACIÓN
-       ══════════════════════════════════════════════════════════════
-
-       El ciclo de vida de un error en CUP es:
-         1. syntax_error(tok)  → CUP detecta que tok no encaja
-         2. CUP descarta tokens hasta encontrar un token de sincronización
-         3. La acción de la producción 'error' se ejecuta
-
-       Problema A — DUPLICADO:
-         syntax_error() registra "Símbolo inesperado" (1)
-         La acción registra "Falta FRENO en X"        (2)  ← duplicado
-
-       Problema B — POSICIÓN INCORRECTA:
-         En el paso 2, CUP ya consumió tokens de líneas siguientes,
-         por lo que eleft/eright apuntan al token de sincronización,
-         no al error real.
-
-       Problema C — CASCADA:
-         Un error dentro de un bloque (break sin FRENO) dispara
-         también un error en el bloque contenedor (for/while).
-
-       Solución:
-         - justRecovered: bloquea el syntax_error() post-recuperación
-         - errorLine/Col/Lexeme: guarda posición ANTES del descarte
-         - pendingMessage: el mensaje de syntax_error() se guarda pero
-           NO se registra todavía; se registra solo si recoverError()
-           no viene a reemplazarlo con un mensaje más preciso.
-         - lastRecoveredLine: suprime cascadas cercanas
-    ══════════════════════════════════════════════════════════════ */
     private boolean justRecovered    = false;
     private int     errorLine        = -1;
     private int     errorColumn      = -1;
     private String  errorLexeme      = null;
-    private String  pendingMessage   = null;   // mensaje de syntax_error() en espera
-    private int     lastRecoveredLine = -1;    // última línea donde se registró un error
+    private String  pendingMessage   = null;
+    private int     lastRecoveredLine = -1;
 
     private int normalizeLine(int l)   { return l < 1 ? 1 : l; }
     private int normalizeCol(int c)    { return c < 1 ? 1 : c; }
 
-    /* ── Mapa sym → lexema ChapinScript ─────────────────────────── */
     private String symToLexeme(int s) {
         switch (s) {
             case sym.PRINT:           return "chotear";
@@ -184,7 +166,7 @@ parser code {:
             case sym.QUESTION:        return "DUDA";
             case sym.COLON:           return "OJOS";
             case sym.LEFT_PAREN:      return "ABRAZO";
-            case sym.RIGHT_PAREN:     return "RESPANDO";
+            case sym.RIGHT_PAREN:     return "RESPALDO";
             case sym.LEFT_BRACE:      return "ALMA";
             case sym.RIGHT_BRACE:     return "CUERPO";
             case sym.LEFT_BRACKET:    return "CAJON";
@@ -280,12 +262,30 @@ parser code {:
         // por si hay errores encadenados.
         if (justRecovered) {
             justRecovered = false;
-            savePos(cur_token);
             return;
         }
 
         // Guardar posición ANTES del descarte de pánico
         savePos(cur_token);
+
+        // ── Detección de bloque sin cerrar ─────────────────────────────────
+        // Si estamos dentro de un bloque (blockDepth > 0) y llega un token
+        // que solo puede aparecer en el nivel global, el bloque anterior
+        // nunca recibió su CUERPO. Registramos el error aquí con la posición
+        // del ALMA que lo abrió, antes de que CUP intente recuperarse.
+        if (cur_token != null && blockDepth > 0) {
+            boolean esTokenGlobal = cur_token.sym == sym.VOID
+                || cur_token.sym == sym.INT   || cur_token.sym == sym.FLOAT
+                || cur_token.sym == sym.DOUBLE || cur_token.sym == sym.CHAR
+                || cur_token.sym == sym.BOOL   || cur_token.sym == sym.STRING
+                || cur_token.sym == sym.CONST  || cur_token.sym == sym.CLASS
+                || cur_token.sym == sym.EOF;
+            if (esTokenGlobal && blockOpenLine > 0) {
+                doRegister(blockOpenLine, blockOpenColumn, "ALMA",
+                           "Falta CUERPO (}) para cerrar el bloque", true);
+                // No salir — dejar que CUP registre también la recuperación normal
+            }
+        }
 
         // Construir mensaje con nombres ChapinScript
         String message;
@@ -295,7 +295,7 @@ parser code {:
             switch (cur_token.sym) {
                 case sym.SEMICOLON:       message = "FRENO inesperado";                                    break;
                 case sym.RIGHT_BRACE:     message = "CUERPO (}) inesperado";                               break;
-                case sym.RIGHT_PAREN:     message = "RESPANDO ()) inesperado";                             break;
+                case sym.RIGHT_PAREN:     message = "RESPALDO ()) inesperado";                             break;
                 case sym.LEFT_BRACE:      message = "ALMA ({) inesperada";                                 break;
                 case sym.LEFT_PAREN:      message = "ABRAZO (() inesperado";                               break;
                 case sym.LEFT_BRACKET:    message = "CAJON ([) inesperado";                                break;
@@ -402,7 +402,18 @@ parser code {:
         // force=true: nunca se suprime por cascada — bloque/clase sin cerrar
         // siempre deben aparecer independientemente de errores cercanos
         doRegister(line, column, lexeme, message, true);
-        lastRecoveredLine = line;
+        lastRecoveredLine = -1;
+        justRecovered = true;
+        errorLine = -1; errorColumn = -1; errorLexeme = null;
+    }
+
+    private void recoverErrorNoSuppress(String message) {
+        pendingMessage = null;
+        int    line   = errorLine   > 0 ? errorLine   : 1;
+        int    column = errorColumn > 0 ? errorColumn : 1;
+        String lexeme = errorLexeme != null ? errorLexeme : "desconocido";
+        doRegister(line, column, lexeme, message, true); // force=true
+        // NO actualizamos lastRecoveredLine — no contaminar ventana de supresión
         justRecovered = true;
         errorLine = -1; errorColumn = -1; errorLexeme = null;
     }
@@ -705,30 +716,31 @@ statement ::= decl:d            {: RESULT = d; :}
    ══════════════════════════════════════════════════════════════════ */
 block_open ::= LEFT_BRACE:lb
                {: enterBlock();
-                  // Guardar posición del ALMA de apertura para que si el bloque
-                  // no se cierra, recoverErrorForced() reporte esta línea/columna
-                  // y no L1 (que ocurre cuando errorLine fue limpiado por otro error).
-                  if (errorLine < 1) {
-                      errorLine   = normalizeLine(lbleft);
-                      errorColumn = normalizeCol(lbright);
-                      errorLexeme = "ALMA";
-                  }
+                   blockOpenLine   = normalizeLine(lbleft);
+                   blockOpenColumn = normalizeCol(lbright);
+                   errorLexeme = "ALMA";
                :}
                ;
 
 block ::= block_open statement_list:s RIGHT_BRACE
           {: exitBlock();
-             // Bloque cerrado correctamente — limpiar posición guardada por block_open
              errorLine = -1; errorColumn = -1; errorLexeme = null;
+             blockOpenLine = -1; blockOpenColumn = -1;
              RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}"; :}
         | block_open statement_list:s error:e
           {: exitBlock();
-             // Si errorLine no fue capturado, usar posición del token error
-             if (errorLine < 1) {
+             // Usar la posición del ALMA que abrió el bloque — es más informativa
+             // que la posición del token que falló.
+             if (blockOpenLine > 0) {
+                 errorLine   = blockOpenLine;
+                 errorColumn = blockOpenColumn;
+                 errorLexeme = "ALMA";
+             } else if (errorLine < 1) {
                  errorLine   = normalizeLine(eleft);
                  errorColumn = normalizeCol(eright);
                  errorLexeme = "CUERPO";
              }
+             blockOpenLine = -1; blockOpenColumn = -1;
              recoverErrorForced("Falta CUERPO (}) para cerrar el bloque");
              RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}"; :}
         ;
@@ -889,7 +901,7 @@ if_stmt ::= IF LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk
                RESULT = new Fragment(Fragment.STATEMENT, "if (false) " + b); :}
           | IF:i LEFT_PAREN expression:cond error block:b
             {: savePos(ileft, iright, "simon");
-               recoverError("Falta RESPANDO ()) en la condición de simon (if)");
+               recoverError("Falta RESPALDO ()) en la condición de simon (if)");
                RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + b); :}
           ;
 
@@ -904,7 +916,7 @@ while_stmt ::= WHILE LEFT_PAREN expression:cond RIGHT_PAREN block:b
                   RESULT = new Fragment(Fragment.STATEMENT, "while (false) " + b); :}
              | WHILE:w LEFT_PAREN expression:cond error block:b
                {: savePos(wleft, wright, "seguile");
-                  recoverError("Falta RESPANDO ()) en la condición de seguile (while)");
+                  recoverError("Falta RESPALDO ()) en la condición de seguile (while)");
                   RESULT = new Fragment(Fragment.STATEMENT, "while (" + cond + ") " + b); :}
              ;
 
@@ -914,8 +926,8 @@ while_stmt ::= WHILE LEFT_PAREN expression:cond RIGHT_PAREN block:b
 do_while_stmt ::= DO block:b WHILE LEFT_PAREN expression:cond RIGHT_PAREN SEMICOLON
                   {: RESULT = new Fragment(Fragment.STATEMENT,
                        "do " + b + " while (" + cond + ");"); :}
-                | DO block:b WHILE:w LEFT_PAREN expression:cond RIGHT_PAREN error
-                  {: savePos(wleft, wright, "seguile");
+                | DO:d block:b WHILE:w LEFT_PAREN expression:cond RIGHT_PAREN error
+                  {: savePos(dleft, dright, "seguile");
                      recoverError("Falta FRENO al final de dale...seguile (do-while)");
                      RESULT = new Fragment(Fragment.STATEMENT,
                        "do " + b + " while (" + cond + ");"); :}
@@ -933,7 +945,7 @@ for_stmt ::= FOR LEFT_PAREN for_init:init SEMICOLON expression:cond SEMICOLON fo
                 RESULT = new Fragment(Fragment.STATEMENT, "for (;;) " + b); :}
            | FOR:f LEFT_PAREN for_init:init SEMICOLON expression:cond SEMICOLON for_update:update error block:b
              {: savePos(fleft, fright, "vuelta");
-                recoverError("Falta RESPANDO ()) en la estructura de vuelta (for)");
+                recoverError("Falta RESPALDO ()) en la estructura de vuelta (for)");
                 RESULT = new Fragment(Fragment.STATEMENT,
                   "for (" + init + "; " + cond + "; " + update + ") " + b); :}
            ;
@@ -961,7 +973,7 @@ switch_stmt ::= SWITCH LEFT_PAREN expression:expr RIGHT_PAREN LEFT_BRACE case_li
                      "switch (0) {\n" + indent(join(c, "\n")) + "}"); :}
               | SWITCH:s LEFT_PAREN expression:expr error LEFT_BRACE case_list:c RIGHT_BRACE
                 {: savePos(sleft, sright, "chiripa");
-                   recoverError("Falta RESPANDO ()) en la expresión de chiripa (switch)");
+                   recoverError("Falta RESPALDO ()) en la expresión de chiripa (switch)");
                    RESULT = new Fragment(Fragment.STATEMENT,
                      "switch (" + expr + ") {\n" + indent(join(c, "\n")) + "}"); :}
               ;
@@ -1086,7 +1098,7 @@ lvalue ::= IDENTIFIER:id       {: RESULT = id; :}
 array_access ::= IDENTIFIER:id LEFT_BRACKET expression:index RIGHT_BRACKET
                  {: RESULT = id + "[" + index + "]"; :}
                | IDENTIFIER:id LEFT_BRACKET error RIGHT_BRACKET
-                 {: recoverError("Índice inválido entre CAJON..TAPA ([..]) en arreglo");
+                 {: recoverErrorNoSuppress("Índice inválido entre CAJON..TAPA ([..]) en arreglo");
                     RESULT = id + "[0]"; :}
                ;
 
@@ -1104,7 +1116,7 @@ primary ::= literal:l             {: RESULT = l; :}
           | primary:p DECREMENT         {: RESULT = "(" + p + "--)"; :}
           | LEFT_PAREN expression:e RIGHT_PAREN {: RESULT = "(" + e + ")"; :}
           | LEFT_PAREN expression:e error
-            {: recoverError("Falta RESPANDO ()) en la expresión agrupada");
+            {: recoverErrorNoSuppress("Falta RESPALDO ()) en la expresión agrupada");
                RESULT = "(" + e + ")"; :}
           ;
 
