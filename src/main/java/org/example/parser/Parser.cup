@@ -704,8 +704,10 @@ statement ::= decl:d            {: RESULT = d; :}
               {: savePos(eleft, eright, e.length() > 20 ? e.substring(0,20) : e);
                  recoverError("Falta FRENO al final de la expresión");
                  RESULT = new Fragment(Fragment.STATEMENT, e + ";"); :}
-            | error SEMICOLON
-              {: recoverErrorForced("Sentencia inválida — token inesperado en esta posición");
+            | error:e SEMICOLON
+              {:
+                 savePos(eleft, eright, "error");
+                 recoverErrorForced("Sentencia inválida — token inesperado en esta posición");
                  RESULT = new Fragment(Fragment.STATEMENT, "// sentencia inválida"); :}
             ;
 
@@ -831,7 +833,8 @@ decl_constructors ::= IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
                          recoverError("Parámetros inválidos en el constructor '" + id + "'");
                          RESULT = buildConstructor(id, new ArrayList(), b); :}
                     | IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN error
-                      {: recoverError("Falta ALMA..CUERPO ({...}) en el constructor '" + id + "'");
+                      {: savePos(idleft, idright, id);
+                         recoverError("Falta ALMA..CUERPO ({...}) en el constructor '" + id + "'");
                          RESULT = buildConstructor(id, p, "{}"); :}
                     ;
 
@@ -1012,8 +1015,9 @@ catch_clause ::= CATCH LEFT_PAREN param:p RIGHT_PAREN block:b
                  {: savePos(cleft, cright, "atrapalo");
                     recoverError("Parámetro inválido en atrapalo (catch)");
                     RESULT = " catch (const std::exception& ex) " + b; :}
-               | CATCH LEFT_PAREN param:p RIGHT_PAREN error
-                 {: recoverError("Falta ALMA..CUERPO ({...}) en atrapalo (catch)");
+               | CATCH:c LEFT_PAREN param:p RIGHT_PAREN error
+                 {: savePos(cleft, cright, "atrapalo");
+                    recoverError("Falta ALMA..CUERPO ({...}) en atrapalo (catch)");
                     RESULT = " catch (" + p.toCatchCpp() + ") {}"; :}
                ;
 
@@ -1098,7 +1102,9 @@ lvalue ::= IDENTIFIER:id       {: RESULT = id; :}
 array_access ::= IDENTIFIER:id LEFT_BRACKET expression:index RIGHT_BRACKET
                  {: RESULT = id + "[" + index + "]"; :}
                | IDENTIFIER:id LEFT_BRACKET error RIGHT_BRACKET
-                 {: recoverErrorNoSuppress("Índice inválido entre CAJON..TAPA ([..]) en arreglo");
+                 {:
+                    savePos(idleft, idright, id);
+                    recoverErrorNoSuppress("Índice inválido entre CAJON..TAPA ([..]) en arreglo");
                     RESULT = id + "[0]"; :}
                ;
 
@@ -1116,14 +1122,18 @@ primary ::= literal:l             {: RESULT = l; :}
           | primary:p DECREMENT         {: RESULT = "(" + p + "--)"; :}
           | LEFT_PAREN expression:e RIGHT_PAREN {: RESULT = "(" + e + ")"; :}
           | LEFT_PAREN expression:e error
-            {: recoverErrorNoSuppress("Falta RESPALDO ()) en la expresión agrupada");
+            {:
+               savePos(eleft, eright, e);
+               recoverErrorNoSuppress("Falta RESPALDO ()) en la expresión agrupada");
                RESULT = "(" + e + ")"; :}
           ;
 
 func_call ::= IDENTIFIER:id LEFT_PAREN arg_list:args RIGHT_PAREN
               {: RESULT = id + "(" + argsToCpp(args) + ")"; :}
             | IDENTIFIER:id LEFT_PAREN error RIGHT_PAREN
-              {: recoverError("Argumentos inválidos en llamada a función '" + id + "'");
+              {:
+                 savePos(idleft, idright, "error");
+                 recoverError("Argumentos inválidos en llamada a función '" + id + "'");
                  RESULT = id + "()"; :}
             ;
 
