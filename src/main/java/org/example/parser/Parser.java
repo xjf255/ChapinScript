@@ -2306,7 +2306,12 @@ class CUP$Parser$actions {
           case 25: // statement ::= error SEMICOLON 
             {
               Fragment RESULT =null;
-		 recoverErrorForced("Sentencia inválida — token inesperado en esta posición");
+		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
+		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
+		Object e = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
+		
+                 savePos(eleft, eright, "error");
+                 recoverErrorForced("Sentencia inválida — token inesperado en esta posición");
                  RESULT = new Fragment(Fragment.STATEMENT, "// sentencia inválida"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("statement",2, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
@@ -2862,7 +2867,8 @@ class CUP$Parser$actions {
 		int pleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).left;
 		int pright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).right;
 		List p = (List)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-2)).value;
-		 recoverError("Falta ALMA..CUERPO ({...}) en el constructor '" + id + "'");
+		 savePos(idleft, idright, id);
+                         recoverError("Falta ALMA..CUERPO ({...}) en el constructor '" + id + "'");
                          RESULT = buildConstructor(id, p, "{}"); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("decl_constructors",7, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
@@ -3584,10 +3590,14 @@ class CUP$Parser$actions {
           case 105: // catch_clause ::= CATCH LEFT_PAREN param RIGHT_PAREN error 
             {
               String RESULT =null;
+		int cleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)).left;
+		int cright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)).right;
+		Object c = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-4)).value;
 		int pleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).left;
 		int pright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).right;
 		ParamInfo p = (ParamInfo)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-2)).value;
-		 recoverError("Falta ALMA..CUERPO ({...}) en atrapalo (catch)");
+		 savePos(cleft, cright, "atrapalo");
+                    recoverError("Falta ALMA..CUERPO ({...}) en atrapalo (catch)");
                     RESULT = " catch (" + p.toCatchCpp() + ") {}"; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("catch_clause",25, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
@@ -4229,7 +4239,9 @@ class CUP$Parser$actions {
 		int idleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)).left;
 		int idright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)).right;
 		String id = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-3)).value;
-		 recoverErrorNoSuppress("Índice inválido entre CAJON..TAPA ([..]) en arreglo");
+		
+                    savePos(idleft, idright, id);
+                    recoverErrorNoSuppress("Índice inválido entre CAJON..TAPA ([..]) en arreglo");
                     RESULT = id + "[0]"; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("array_access",46, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
@@ -4401,7 +4413,9 @@ class CUP$Parser$actions {
 		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		String e = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
-		 recoverErrorNoSuppress("Falta RESPALDO ()) en la expresión agrupada");
+		
+               savePos(eleft, eright, e);
+               recoverErrorNoSuppress("Falta RESPALDO ()) en la expresión agrupada");
                RESULT = "(" + e + ")"; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("primary",40, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
@@ -4429,7 +4443,9 @@ class CUP$Parser$actions {
 		int idleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)).left;
 		int idright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)).right;
 		String id = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-3)).value;
-		 recoverError("Argumentos inválidos en llamada a función '" + id + "'");
+		
+                 savePos(idleft, idright, "error");
+                 recoverError("Argumentos inválidos en llamada a función '" + id + "'");
                  RESULT = id + "()"; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("func_call",42, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
