@@ -28,25 +28,11 @@ parser code {:
                    ", cerca de '" + lexeme + "' />";
         }
 
-         public String getType() {
-           return type;
-         }
-
-         public String getMessage() {
-           return message;
-         }
-
-         public int getLine() {
-           return line;
-         }
-
-          public int getColumn() {
-            return column;
-          }
-
-          public String getLexeme() {
-            return lexeme;
-          }
+        public String getType()    { return type; }
+        public String getMessage() { return message; }
+        public int    getLine()    { return line; }
+        public int    getColumn()  { return column; }
+        public String getLexeme()  { return lexeme; }
     }
 
     public static class Fragment {
@@ -85,13 +71,73 @@ parser code {:
         }
     }
 
-    private int blockDepth = 0;
-    private int blockOpenLine = -1;
-    private int blockOpenColumn = -1;
-    public void enterBlock() { blockDepth++; }
-    public void exitBlock()  { if (blockDepth > 0) blockDepth--; }
-    public boolean isLocalScope() { return blockDepth > 0; }
+    /* ══════════════════════════════════════════════════════════════
+       BLOQUE CONTEXT — stack de bloques abiertos
+       ══════════════════════════════════════════════════════════════ */
+    public static class BlockContext {
+        public enum Kind { FUNCTION, IF, WHILE, FOR, DO, CLASS, GENERIC }
 
+        public final Kind   kind;
+        public final int    line;
+        public final int    column;
+        public final String label;
+
+        public BlockContext(Kind kind, int line, int column, String label) {
+            this.kind   = kind;
+            this.line   = line;
+            this.column = column;
+            this.label  = label != null ? label : "";
+        }
+
+        public String missingCloseMessage() {
+            switch (kind) {
+                case FUNCTION: return "Falta CUERPO (}) para cerrar la función '"
+                                      + label + "' abierta en línea " + line;
+                case IF:       return "Falta CUERPO (}) para cerrar el bloque simon (if)"
+                                      + " abierto en línea " + line;
+                case WHILE:    return "Falta CUERPO (}) para cerrar el bloque seguile (while)"
+                                      + " abierto en línea " + line;
+                case FOR:      return "Falta CUERPO (}) para cerrar el bloque vuelta (for)"
+                                      + " abierto en línea " + line;
+                case DO:       return "Falta CUERPO (}) para cerrar el bloque dale (do)"
+                                      + " abierto en línea " + line;
+                case CLASS:    return "Falta CUERPO (}) para cerrar la clase (banda) '"
+                                      + label + "' abierta en línea " + line;
+                default:       return "Falta CUERPO (}) para cerrar el bloque"
+                                      + " abierto en línea " + line;
+            }
+        }
+    }
+
+    private final java.util.Deque<BlockContext> blockStack = new java.util.ArrayDeque<>();
+
+    public void enterBlock(BlockContext ctx) { blockStack.push(ctx); }
+    public void enterBlock()                 { blockStack.push(new BlockContext(BlockContext.Kind.GENERIC, 1, 1, "")); }
+    public void exitBlock()                  { if (!blockStack.isEmpty()) blockStack.pop(); }
+    public boolean isLocalScope()            { return !blockStack.isEmpty(); }
+    public BlockContext currentBlock()       { return blockStack.isEmpty() ? null : blockStack.peek(); }
+
+    /** Reemplaza el tope del stack con contexto real (llamado desde reglas padre) */
+    public void setBlockContext(BlockContext.Kind kind, int line, int column, String label) {
+        if (!blockStack.isEmpty()) {
+            blockStack.pop();
+            blockStack.push(new BlockContext(kind, normalizeLine(line), normalizeCol(column), label));
+        }
+    }
+
+    /** Registra error para todos los bloques aún abiertos y vacía el stack */
+    public void flushUnclosedBlocks() {
+        while (!blockStack.isEmpty()) {
+            BlockContext ctx = blockStack.pop();
+            doRegister(ctx.line, ctx.column,
+                       ctx.label.isEmpty() ? "ALMA" : ctx.label,
+                       ctx.missingCloseMessage(), true);
+        }
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       ESTADO DE ERRORES
+       ══════════════════════════════════════════════════════════════ */
     private final List<SyntaxError> syntaxErrors = new ArrayList<>();
     public List<SyntaxError> getSyntaxErrors() { return syntaxErrors; }
 
@@ -102,8 +148,8 @@ parser code {:
     private String  pendingMessage   = null;
     private int     lastRecoveredLine = -1;
 
-    private int normalizeLine(int l)   { return l < 1 ? 1 : l; }
-    private int normalizeCol(int c)    { return c < 1 ? 1 : c; }
+    private int normalizeLine(int l) { return l < 1 ? 1 : l; }
+    private int normalizeCol(int c)  { return c < 1 ? 1 : c; }
 
     private String symToLexeme(int s) {
         switch (s) {
@@ -195,24 +241,12 @@ parser code {:
         }
     }
 
-    /**
-     * Versión con posición explícita del token de contexto (IF, WHILE, etc.)
-     * Solo sobreescribe la posición guardada si no hay una posición válida
-     * del token real que falló — syntax_error() ya la habrá guardado antes.
-     * Siempre actualiza el lexema para que diga "simon", "seguile", etc.
-     * en lugar del token de sincronización.
-     */
     private void savePos(int line, int col, String lexeme) {
-        // Siempre usar el lexema del token de contexto (más legible)
         errorLexeme = (lexeme != null && !lexeme.isBlank()) ? lexeme : "desconocido";
-        // Línea y columna: preferir la del error real guardada por syntax_error()
-        // Solo usar la del token de contexto si no hay nada guardado
         if (errorLine < 1) {
             errorLine   = normalizeLine(line);
             errorColumn = normalizeCol(col);
         }
-        // Si ya tenemos posición real del error (guardada en syntax_error),
-        // la mantenemos — es más precisa que la del token de contexto.
     }
 
     /* ── Registro real de errores ───────────────────────────────── */
@@ -225,13 +259,11 @@ parser code {:
         col    = normalizeCol(col);
         if (lexeme == null || lexeme.isBlank()) lexeme = "desconocido";
 
-        // Deduplicación exacta consecutiva
         if (!syntaxErrors.isEmpty()) {
             SyntaxError last = syntaxErrors.get(syntaxErrors.size() - 1);
             if (last.line == line && last.message.equals(message)) return;
         }
 
-        // Supresión de cascada — solo si no es forzado
         if (!force && lastRecoveredLine > 0 && Math.abs(line - lastRecoveredLine) <= 2) {
             return;
         }
@@ -239,7 +271,6 @@ parser code {:
         syntaxErrors.add(new SyntaxError("Sintáctico", message, line, col, lexeme));
     }
 
-    /* ── addSyntaxError (usado internamente y por report_error) ── */
     private void addSyntaxError(Symbol token, String message) {
         if (token != null) {
             doRegister(normalizeLine(token.left), normalizeCol(token.right),
@@ -253,41 +284,42 @@ parser code {:
         doRegister(line, col, lexeme, message);
     }
 
-    /* ── syntax_error: punto de entrada de CUP ─────────────────── */
+    /* ── syntax_error ───────────────────────────────────────────── */
     @Override
     public void syntax_error(Symbol cur_token) {
-        // POST-RECUPERACIÓN: CUP llama syntax_error() de nuevo con el
-        // token de continuación. Lo descartamos — recoverError() ya
-        // registró el mensaje preciso. Actualizamos la posición guardada
-        // por si hay errores encadenados.
         if (justRecovered) {
             justRecovered = false;
             return;
         }
 
-        // Guardar posición ANTES del descarte de pánico
         savePos(cur_token);
 
-        // ── Detección de bloque sin cerrar ─────────────────────────────────
-        // Si estamos dentro de un bloque (blockDepth > 0) y llega un token
-        // que solo puede aparecer en el nivel global, el bloque anterior
-        // nunca recibió su CUERPO. Registramos el error aquí con la posición
-        // del ALMA que lo abrió, antes de que CUP intente recuperarse.
-        if (cur_token != null && blockDepth > 0) {
-            boolean esTokenGlobal = cur_token.sym == sym.VOID
-                || cur_token.sym == sym.INT   || cur_token.sym == sym.FLOAT
+        // Detección temprana de bloques sin cerrar:
+        // Si hay bloques en el stack y llega un token de nivel global o EOF,
+        // reportamos todos los bloques no cerrados antes de que CUP entre en pánico.
+        if (cur_token != null && !blockStack.isEmpty()) {
+            boolean esTokenGlobal =
+                   cur_token.sym == sym.VOID
+                || cur_token.sym == sym.INT    || cur_token.sym == sym.FLOAT
                 || cur_token.sym == sym.DOUBLE || cur_token.sym == sym.CHAR
                 || cur_token.sym == sym.BOOL   || cur_token.sym == sym.STRING
                 || cur_token.sym == sym.CONST  || cur_token.sym == sym.CLASS
                 || cur_token.sym == sym.EOF;
-            if (esTokenGlobal && blockOpenLine > 0) {
-                doRegister(blockOpenLine, blockOpenColumn, "ALMA",
-                           "Falta CUERPO (}) para cerrar el bloque", true);
-                // No salir — dejar que CUP registre también la recuperación normal
+
+            if (esTokenGlobal) {
+                // Clonar para reportar sin vaciar — CUP aún necesita el estado
+                java.util.Deque<BlockContext> tmp = new java.util.ArrayDeque<>(blockStack);
+                while (!tmp.isEmpty()) {
+                    BlockContext ctx = tmp.pop();
+                    doRegister(ctx.line, ctx.column,
+                               ctx.label.isEmpty() ? "ALMA" : ctx.label,
+                               ctx.missingCloseMessage(), true);
+                }
+                blockStack.clear();
             }
         }
 
-        // Construir mensaje con nombres ChapinScript
+        // Construir mensaje genérico
         String message;
         if (cur_token == null) {
             message = "Símbolo inesperado";
@@ -309,7 +341,7 @@ parser code {:
                 case sym.IF:              message = "simon (if) inesperado";                               break;
                 case sym.WHILE:           message = "seguile (while) inesperado";                          break;
                 case sym.FOR:             message = "vuelta (for) inesperado";                             break;
-                case sym.DO:              message = "dale (do) inesperado";                                break;
+                case sym.DO:             message = "dale (do) inesperado";                                 break;
                 case sym.SWITCH:          message = "chiripa (switch) inesperado";                         break;
                 case sym.BREAK:           message = "cuaje (break) inesperado";                            break;
                 case sym.CONTINUE:        message = "chanin (continue) inesperado";                        break;
@@ -349,19 +381,20 @@ parser code {:
                 case sym.MULTIPLY_ASSIGN: message = "ESTRELLA_DAR (*=) inesperado";                        break;
                 case sym.DIVIDE_ASSIGN:   message = "RAMPA_DAR (/=) inesperado";                           break;
                 case sym.MOD_ASSIGN:      message = "SOBRA_DAR (%=) inesperado";                           break;
-                case sym.EOF:             message = "Fin de archivo inesperado";                           break;
+                case sym.EOF:
+                    // EOF con bloques abiertos ya fue reportado arriba — mensaje enriquecido
+                    message = blockStack.isEmpty()
+                        ? "Fin de archivo inesperado"
+                        : "Fin de archivo inesperado: " + blockStack.peek().missingCloseMessage();
+                    break;
                 default:                  message = "Símbolo inesperado";                                  break;
             }
         }
 
-        // Guardar el mensaje como PENDIENTE — no registrar todavía.
-        // recoverError() lo reemplazará con un mensaje más preciso.
-        // Si no viene ningún recoverError() (no hay producción 'error'
-        // que lo capture), flushPending() lo registrará tal cual.
         pendingMessage = message;
     }
 
-    /* ── Vuelca el mensaje pendiente si nadie lo reemplazó ──────── */
+    /* ── flushPending ───────────────────────────────────────────── */
     private void flushPending() {
         if (pendingMessage != null) {
             doRegister(errorLine > 0 ? errorLine : 1,
@@ -372,35 +405,26 @@ parser code {:
         }
     }
 
-    /* ── recoverError: llamado desde las acciones 'error' ───────── */
+    /* ── recoverError ───────────────────────────────────────────── */
     private void recoverError(String message) {
-        // Descartar el mensaje pendiente de syntax_error() — lo
-        // reemplazamos con el mensaje preciso de la producción.
         pendingMessage = null;
-
         int    line   = errorLine   > 0 ? errorLine   : 1;
         int    column = errorColumn > 0 ? errorColumn : 1;
         String lexeme = errorLexeme != null ? errorLexeme : "desconocido";
-
-        // Solo registrar si no es cascada de un error cercano
         if (lastRecoveredLine < 0 || Math.abs(line - lastRecoveredLine) > 2) {
             doRegister(line, column, lexeme, message);
             lastRecoveredLine = line;
         }
-
         justRecovered = true;
         errorLine = -1; errorColumn = -1; errorLexeme = null;
     }
 
-    /* ── recoverErrorForced: para errores de nivel alto ─────────── */
-    // Clase sin cerrar, bloque sin cerrar, EOF — nunca se suprimen.
+    /* ── recoverErrorForced ─────────────────────────────────────── */
     private void recoverErrorForced(String message) {
         pendingMessage = null;
         int    line   = errorLine   > 0 ? errorLine   : 1;
         int    column = errorColumn > 0 ? errorColumn : 1;
         String lexeme = errorLexeme != null ? errorLexeme : "desconocido";
-        // force=true: nunca se suprime por cascada — bloque/clase sin cerrar
-        // siempre deben aparecer independientemente de errores cercanos
         doRegister(line, column, lexeme, message, true);
         lastRecoveredLine = -1;
         justRecovered = true;
@@ -412,8 +436,7 @@ parser code {:
         int    line   = errorLine   > 0 ? errorLine   : 1;
         int    column = errorColumn > 0 ? errorColumn : 1;
         String lexeme = errorLexeme != null ? errorLexeme : "desconocido";
-        doRegister(line, column, lexeme, message, true); // force=true
-        // NO actualizamos lastRecoveredLine — no contaminar ventana de supresión
+        doRegister(line, column, lexeme, message, true);
         justRecovered = true;
         errorLine = -1; errorColumn = -1; errorLexeme = null;
     }
@@ -421,11 +444,15 @@ parser code {:
     @Override
     public void unrecovered_syntax_error(Symbol cur_token) throws Exception {
         flushPending();
+        // Reportar bloques que quedaron abiertos sin recuperación gramatical
+        flushUnclosedBlocks();
         String lex  = errorLexeme != null ? errorLexeme : resolveLexeme(cur_token);
         int    line = errorLine > 0 ? errorLine : normalizeLine(cur_token != null ? cur_token.left  : 1);
         int    col  = errorColumn > 0 ? errorColumn : normalizeCol(cur_token != null ? cur_token.right : 1);
         lastRecoveredLine = -1;
-        doRegister(line, col, lex, "Error sintáctico no recuperable", true);
+        if (syntaxErrors.isEmpty()) {
+            doRegister(line, col, lex, "Error sintáctico no recuperable", true);
+        }
         throw new Exception("Error sintáctico no recuperable");
     }
 
@@ -586,6 +613,12 @@ non terminal List     statement_list;
 non terminal Fragment statement;
 non terminal String   block;
 non terminal          block_open;
+non terminal          func_block_open;
+non terminal          if_block_open;
+non terminal          while_block_open;
+non terminal          for_block_open;
+non terminal          do_block_open;
+
 non terminal Fragment decl;
 non terminal Fragment decl_class;
 non terminal String   decl_constructors;
@@ -712,40 +745,113 @@ statement ::= decl:d            {: RESULT = d; :}
             ;
 
 /* ══════════════════════════════════════════════════════════════════
-   BLOQUE
-   block_open: auxiliar para evitar conflicto reduce/reduce de CUP
-   cuando dos producciones tienen la misma acción intermedia.
+   BLOQUES GENÉRICO
+   block_open: para bloques cuyo contexto no necesita nombre (catch, switch, etc.)
    ══════════════════════════════════════════════════════════════════ */
 block_open ::= LEFT_BRACE:lb
-               {: enterBlock();
-                   blockOpenLine   = normalizeLine(lbleft);
-                   blockOpenColumn = normalizeCol(lbright);
+               {:
+                   enterBlock(new BlockContext(
+                       BlockContext.Kind.GENERIC,
+                       normalizeLine(lbleft),
+                       normalizeCol(lbright),
+                       ""
+                   ));
                    errorLexeme = "ALMA";
                :}
                ;
 
 block ::= block_open statement_list:s RIGHT_BRACE
-          {: exitBlock();
-             errorLine = -1; errorColumn = -1; errorLexeme = null;
-             blockOpenLine = -1; blockOpenColumn = -1;
-             RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}"; :}
+          {:
+              exitBlock();
+              errorLine = -1; errorColumn = -1; errorLexeme = null;
+              RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}";
+          :}
         | block_open statement_list:s error:e
-          {: exitBlock();
-             // Usar la posición del ALMA que abrió el bloque — es más informativa
-             // que la posición del token que falló.
-             if (blockOpenLine > 0) {
-                 errorLine   = blockOpenLine;
-                 errorColumn = blockOpenColumn;
-                 errorLexeme = "ALMA";
-             } else if (errorLine < 1) {
-                 errorLine   = normalizeLine(eleft);
-                 errorColumn = normalizeCol(eright);
-                 errorLexeme = "CUERPO";
-             }
-             blockOpenLine = -1; blockOpenColumn = -1;
-             recoverErrorForced("Falta CUERPO (}) para cerrar el bloque");
-             RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}"; :}
+          {:
+              BlockContext ctx = currentBlock();
+              exitBlock();
+              if (ctx != null && ctx.line > 0) {
+                  errorLine   = ctx.line;
+                  errorColumn = ctx.column;
+                  errorLexeme = ctx.label.isEmpty() ? "ALMA" : ctx.label;
+              } else if (errorLine < 1) {
+                  errorLine   = normalizeLine(eleft);
+                  errorColumn = normalizeCol(eright);
+                  errorLexeme = "CUERPO";
+              }
+              String msg = ctx != null
+                  ? ctx.missingCloseMessage()
+                  : "Falta CUERPO (}) para cerrar el bloque";
+              recoverErrorForced(msg);
+              RESULT = "{\n" + indent(joinFragmentsAsBody(s)) + "}";
+          :}
         ;
+
+/* ══════════════════════════════════════════════════════════════════
+   BLOQUES ESPECIALIZADOS — abren el bloque con contexto conocido
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Usado por funciones (void y tipadas) — el label (nombre) se setea
+   desde la regla de decl después de hacer push */
+func_block_open ::= LEFT_BRACE:lb
+                    {:
+                        enterBlock(new BlockContext(
+                            BlockContext.Kind.FUNCTION,
+                            normalizeLine(lbleft),
+                            normalizeCol(lbright),
+                            "" /* el nombre se actualiza vía setBlockContext en decl */
+                        ));
+                        errorLexeme = "ALMA";
+                    :}
+                    ;
+
+if_block_open ::= LEFT_BRACE:lb
+                  {:
+                      enterBlock(new BlockContext(
+                          BlockContext.Kind.IF,
+                          normalizeLine(lbleft),
+                          normalizeCol(lbright),
+                          ""
+                      ));
+                      errorLexeme = "ALMA";
+                  :}
+                  ;
+
+while_block_open ::= LEFT_BRACE:lb
+                     {:
+                         enterBlock(new BlockContext(
+                             BlockContext.Kind.WHILE,
+                             normalizeLine(lbleft),
+                             normalizeCol(lbright),
+                             ""
+                         ));
+                         errorLexeme = "ALMA";
+                     :}
+                     ;
+
+for_block_open ::= LEFT_BRACE:lb
+                   {:
+                       enterBlock(new BlockContext(
+                           BlockContext.Kind.FOR,
+                           normalizeLine(lbleft),
+                           normalizeCol(lbright),
+                           ""
+                       ));
+                       errorLexeme = "ALMA";
+                   :}
+                   ;
+
+do_block_open ::= LEFT_BRACE:lb
+                  {:
+                      enterBlock(new BlockContext(
+                          BlockContext.Kind.DO,
+                          normalizeLine(lbleft),
+                          normalizeCol(lbright),
+                          ""
+                      ));
+                      errorLexeme = "ALMA";
+                  :}
+                  ;
 
 /* ══════════════════════════════════════════════════════════════════
    MODIFICADORES DE ACCESO
@@ -783,14 +889,116 @@ decl ::= access_modifier:acc type:t IDENTIFIER:id SEMICOLON
          {: savePos(idleft, idright, id);
             recoverError("Falta FRENO al declarar la constante '" + id + "'");
             RESULT = buildVarDecl(null, t, id, e, true); :}
-       | access_modifier:acc VOID IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
-         {: RESULT = new Fragment(Fragment.FUNCTION, buildFunction(acc, "void", id, p, b)); :}
-       | VOID IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
-         {: RESULT = new Fragment(Fragment.FUNCTION, buildFunction(null, "void", id, p, b)); :}
-       | access_modifier:acc type:t IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
-         {: RESULT = new Fragment(Fragment.FUNCTION, buildFunction(acc, t, id, p, b)); :}
-       | type:t IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN block:b
-         {: RESULT = new Fragment(Fragment.FUNCTION, buildFunction(null, t, id, p, b)); :}
+
+       /* ── Funciones void sin modificador de acceso ── */
+       | VOID:v IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN
+         func_block_open statement_list:s RIGHT_BRACE
+         {:
+             setBlockContext(BlockContext.Kind.FUNCTION, vleft, vright, id);
+             exitBlock();
+             errorLine = -1; errorColumn = -1; errorLexeme = null;
+             RESULT = new Fragment(Fragment.FUNCTION,
+                         buildFunction(null, "void", id, p,
+                             "{\n" + indent(joinFragmentsAsBody(s)) + "}"));
+         :}
+       | VOID:v IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN
+         func_block_open statement_list:s error:e
+         {:
+             setBlockContext(BlockContext.Kind.FUNCTION, vleft, vright, id);
+             BlockContext ctx = currentBlock();
+             exitBlock();
+             if (ctx != null && ctx.line > 0) {
+                 errorLine = ctx.line; errorColumn = ctx.column; errorLexeme = id;
+             }
+             recoverErrorForced("Falta CUERPO (}) para cerrar la función '" + id
+                                + "' abierta en línea " + (ctx != null ? ctx.line : normalizeLine(vleft)));
+             RESULT = new Fragment(Fragment.FUNCTION,
+                         buildFunction(null, "void", id, p,
+                             "{\n" + indent(joinFragmentsAsBody(s)) + "}"));
+         :}
+
+       /* ── Funciones void con modificador de acceso ── */
+       | access_modifier:acc VOID:v IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN
+         func_block_open statement_list:s RIGHT_BRACE
+         {:
+             setBlockContext(BlockContext.Kind.FUNCTION, vleft, vright, id);
+             exitBlock();
+             errorLine = -1; errorColumn = -1; errorLexeme = null;
+             RESULT = new Fragment(Fragment.FUNCTION,
+                         buildFunction(acc, "void", id, p,
+                             "{\n" + indent(joinFragmentsAsBody(s)) + "}"));
+         :}
+       | access_modifier:acc VOID:v IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN
+         func_block_open statement_list:s error:e
+         {:
+             setBlockContext(BlockContext.Kind.FUNCTION, vleft, vright, id);
+             BlockContext ctx = currentBlock();
+             exitBlock();
+             if (ctx != null && ctx.line > 0) {
+                 errorLine = ctx.line; errorColumn = ctx.column; errorLexeme = id;
+             }
+             recoverErrorForced("Falta CUERPO (}) para cerrar la función '" + id
+                                + "' abierta en línea " + (ctx != null ? ctx.line : normalizeLine(vleft)));
+             RESULT = new Fragment(Fragment.FUNCTION,
+                         buildFunction(acc, "void", id, p,
+                             "{\n" + indent(joinFragmentsAsBody(s)) + "}"));
+         :}
+
+       /* ── Funciones tipadas sin modificador de acceso ── */
+       | type:t IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN
+         func_block_open statement_list:s RIGHT_BRACE
+         {:
+             setBlockContext(BlockContext.Kind.FUNCTION, idleft, idright, id);
+             exitBlock();
+             errorLine = -1; errorColumn = -1; errorLexeme = null;
+             RESULT = new Fragment(Fragment.FUNCTION,
+                         buildFunction(null, t, id, p,
+                             "{\n" + indent(joinFragmentsAsBody(s)) + "}"));
+         :}
+       | type:t IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN
+         func_block_open statement_list:s error:e
+         {:
+             setBlockContext(BlockContext.Kind.FUNCTION, idleft, idright, id);
+             BlockContext ctx = currentBlock();
+             exitBlock();
+             if (ctx != null && ctx.line > 0) {
+                 errorLine = ctx.line; errorColumn = ctx.column; errorLexeme = id;
+             }
+             recoverErrorForced("Falta CUERPO (}) para cerrar la función '" + id
+                                + "' abierta en línea " + (ctx != null ? ctx.line : normalizeLine(idleft)));
+             RESULT = new Fragment(Fragment.FUNCTION,
+                         buildFunction(null, t, id, p,
+                             "{\n" + indent(joinFragmentsAsBody(s)) + "}"));
+         :}
+
+       /* ── Funciones tipadas con modificador de acceso ── */
+       | access_modifier:acc type:t IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN
+         func_block_open statement_list:s RIGHT_BRACE
+         {:
+             setBlockContext(BlockContext.Kind.FUNCTION, idleft, idright, id);
+             exitBlock();
+             errorLine = -1; errorColumn = -1; errorLexeme = null;
+             RESULT = new Fragment(Fragment.FUNCTION,
+                         buildFunction(acc, t, id, p,
+                             "{\n" + indent(joinFragmentsAsBody(s)) + "}"));
+         :}
+       | access_modifier:acc type:t IDENTIFIER:id LEFT_PAREN param_list:p RIGHT_PAREN
+         func_block_open statement_list:s error:e
+         {:
+             setBlockContext(BlockContext.Kind.FUNCTION, idleft, idright, id);
+             BlockContext ctx = currentBlock();
+             exitBlock();
+             if (ctx != null && ctx.line > 0) {
+                 errorLine = ctx.line; errorColumn = ctx.column; errorLexeme = id;
+             }
+             recoverErrorForced("Falta CUERPO (}) para cerrar la función '" + id
+                                + "' abierta en línea " + (ctx != null ? ctx.line : normalizeLine(idleft)));
+             RESULT = new Fragment(Fragment.FUNCTION,
+                         buildFunction(acc, t, id, p,
+                             "{\n" + indent(joinFragmentsAsBody(s)) + "}"));
+         :}
+
+       /* ── Arrays ── */
        | type:t IDENTIFIER:id LEFT_BRACKET INTEGER_LITERAL:size RIGHT_BRACKET SEMICOLON
          {: RESULT = buildArrayDecl(null, t, id, size, null); :}
        | access_modifier:acc type:t IDENTIFIER:id LEFT_BRACKET INTEGER_LITERAL:size RIGHT_BRACKET SEMICOLON
@@ -888,16 +1096,52 @@ type ::= INT    {: RESULT = "int"; :}
        ;
 
 /* ══════════════════════════════════════════════════════════════════
-   IF
+   IF — expandido con if_block_open para contexto preciso
    ══════════════════════════════════════════════════════════════════ */
-if_stmt ::= IF LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk
-            {: RESULT = new Fragment(Fragment.STATEMENT, "if (" + cond + ") " + thenBlk); :}
-          | IF LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk ELSE block:elseBlk
-            {: RESULT = new Fragment(Fragment.STATEMENT,
-                 "if (" + cond + ") " + thenBlk + " else " + elseBlk); :}
-          | IF LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk ELSE if_stmt:elseIf
-            {: RESULT = new Fragment(Fragment.STATEMENT,
-                 "if (" + cond + ") " + thenBlk + " else " + elseIf.code); :}
+if_stmt ::= IF LEFT_PAREN expression:cond RIGHT_PAREN
+            if_block_open statement_list:s RIGHT_BRACE
+            {:
+                exitBlock();
+                errorLine = -1; errorColumn = -1; errorLexeme = null;
+                RESULT = new Fragment(Fragment.STATEMENT,
+                             "if (" + cond + ") {\n" + indent(joinFragmentsAsBody(s)) + "}");
+            :}
+          | IF LEFT_PAREN expression:cond RIGHT_PAREN
+            if_block_open statement_list:s RIGHT_BRACE ELSE
+            if_block_open statement_list:se RIGHT_BRACE
+            {:
+                exitBlock();
+                String elseBody = "{\n" + indent(joinFragmentsAsBody(se)) + "}";
+                exitBlock();
+                String ifBody   = "{\n" + indent(joinFragmentsAsBody(s))  + "}";
+                errorLine = -1; errorColumn = -1; errorLexeme = null;
+                RESULT = new Fragment(Fragment.STATEMENT,
+                             "if (" + cond + ") " + ifBody + " else " + elseBody);
+            :}
+          | IF LEFT_PAREN expression:cond RIGHT_PAREN
+            if_block_open statement_list:s RIGHT_BRACE ELSE if_stmt:elseIf
+            {:
+                exitBlock();
+                String ifBody = "{\n" + indent(joinFragmentsAsBody(s)) + "}";
+                errorLine = -1; errorColumn = -1; errorLexeme = null;
+                RESULT = new Fragment(Fragment.STATEMENT,
+                             "if (" + cond + ") " + ifBody + " else " + elseIf.code);
+            :}
+          /* Error: bloque if sin cerrar */
+          | IF:i LEFT_PAREN expression:cond RIGHT_PAREN
+            if_block_open statement_list:s error:e
+            {:
+                BlockContext ctx = currentBlock();
+                exitBlock();
+                if (ctx != null && ctx.line > 0) {
+                    errorLine = ctx.line; errorColumn = ctx.column; errorLexeme = "simon";
+                }
+                recoverErrorForced("Falta CUERPO (}) para cerrar el bloque simon (if)"
+                                   + " abierto en línea " + (ctx != null ? ctx.line : normalizeLine(ileft)));
+                RESULT = new Fragment(Fragment.STATEMENT,
+                             "if (" + cond + ") {\n" + indent(joinFragmentsAsBody(s)) + "}");
+            :}
+          /* Error: condición inválida en if */
           | IF:i LEFT_PAREN error RIGHT_PAREN block:b
             {: savePos(ileft, iright, "simon");
                recoverError("Condición inválida en simon (if)");
@@ -909,10 +1153,31 @@ if_stmt ::= IF LEFT_PAREN expression:cond RIGHT_PAREN block:thenBlk
           ;
 
 /* ══════════════════════════════════════════════════════════════════
-   WHILE
+   WHILE — expandido con while_block_open
    ══════════════════════════════════════════════════════════════════ */
-while_stmt ::= WHILE LEFT_PAREN expression:cond RIGHT_PAREN block:b
-               {: RESULT = new Fragment(Fragment.STATEMENT, "while (" + cond + ") " + b); :}
+while_stmt ::= WHILE LEFT_PAREN expression:cond RIGHT_PAREN
+               while_block_open statement_list:s RIGHT_BRACE
+               {:
+                   exitBlock();
+                   errorLine = -1; errorColumn = -1; errorLexeme = null;
+                   RESULT = new Fragment(Fragment.STATEMENT,
+                                "while (" + cond + ") {\n" + indent(joinFragmentsAsBody(s)) + "}");
+               :}
+             /* Error: bloque while sin cerrar */
+             | WHILE:w LEFT_PAREN expression:cond RIGHT_PAREN
+               while_block_open statement_list:s error:e
+               {:
+                   BlockContext ctx = currentBlock();
+                   exitBlock();
+                   if (ctx != null && ctx.line > 0) {
+                       errorLine = ctx.line; errorColumn = ctx.column; errorLexeme = "seguile";
+                   }
+                   recoverErrorForced("Falta CUERPO (}) para cerrar el bloque seguile (while)"
+                                      + " abierto en línea " + (ctx != null ? ctx.line : normalizeLine(wleft)));
+                   RESULT = new Fragment(Fragment.STATEMENT,
+                                "while (" + cond + ") {\n" + indent(joinFragmentsAsBody(s)) + "}");
+               :}
+             /* Error: condición inválida en while */
              | WHILE:w LEFT_PAREN error RIGHT_PAREN block:b
                {: savePos(wleft, wright, "seguile");
                   recoverError("Condición inválida en seguile (while)");
@@ -924,24 +1189,71 @@ while_stmt ::= WHILE LEFT_PAREN expression:cond RIGHT_PAREN block:b
              ;
 
 /* ══════════════════════════════════════════════════════════════════
-   DO-WHILE
+   DO-WHILE — expandido con do_block_open
    ══════════════════════════════════════════════════════════════════ */
-do_while_stmt ::= DO block:b WHILE LEFT_PAREN expression:cond RIGHT_PAREN SEMICOLON
-                  {: RESULT = new Fragment(Fragment.STATEMENT,
-                       "do " + b + " while (" + cond + ");"); :}
-                | DO:d block:b WHILE:w LEFT_PAREN expression:cond RIGHT_PAREN error
-                  {: savePos(dleft, dright, "seguile");
-                     recoverError("Falta FRENO al final de dale...seguile (do-while)");
-                     RESULT = new Fragment(Fragment.STATEMENT,
-                       "do " + b + " while (" + cond + ");"); :}
+do_while_stmt ::= DO do_block_open statement_list:s RIGHT_BRACE
+                  WHILE LEFT_PAREN expression:cond RIGHT_PAREN SEMICOLON
+                  {:
+                      exitBlock();
+                      errorLine = -1; errorColumn = -1; errorLexeme = null;
+                      RESULT = new Fragment(Fragment.STATEMENT,
+                                   "do {\n" + indent(joinFragmentsAsBody(s))
+                                   + "} while (" + cond + ");");
+                  :}
+                /* Error: bloque do sin cerrar */
+                | DO:d do_block_open statement_list:s error:e
+                  {:
+                      BlockContext ctx = currentBlock();
+                      exitBlock();
+                      if (ctx != null && ctx.line > 0) {
+                          errorLine = ctx.line; errorColumn = ctx.column; errorLexeme = "dale";
+                      }
+                      recoverErrorForced("Falta CUERPO (}) para cerrar el bloque dale (do)"
+                                         + " abierto en línea " + (ctx != null ? ctx.line : normalizeLine(dleft)));
+                      RESULT = new Fragment(Fragment.STATEMENT,
+                                   "do {\n" + indent(joinFragmentsAsBody(s)) + "} while (false);");
+                  :}
+                /* Error: falta FRENO en do-while — bloque cerrado OK pero falta ; */
+                | DO:d do_block_open statement_list:s RIGHT_BRACE
+                  WHILE LEFT_PAREN expression:cond RIGHT_PAREN error
+                  {:
+                      exitBlock();
+                      savePos(dleft, dright, "dale");
+                      recoverError("Falta FRENO al final de dale...seguile (do-while)");
+                      RESULT = new Fragment(Fragment.STATEMENT,
+                                   "do {\n" + indent(joinFragmentsAsBody(s))
+                                   + "} while (" + cond + ");");
+                  :}
                 ;
 
 /* ══════════════════════════════════════════════════════════════════
-   FOR
+   FOR — expandido con for_block_open
    ══════════════════════════════════════════════════════════════════ */
-for_stmt ::= FOR LEFT_PAREN for_init:init SEMICOLON expression:cond SEMICOLON for_update:update RIGHT_PAREN block:b
-             {: RESULT = new Fragment(Fragment.STATEMENT,
-                  "for (" + init + "; " + cond + "; " + update + ") " + b); :}
+for_stmt ::= FOR LEFT_PAREN for_init:init SEMICOLON expression:cond SEMICOLON for_update:update RIGHT_PAREN
+             for_block_open statement_list:s RIGHT_BRACE
+             {:
+                 exitBlock();
+                 errorLine = -1; errorColumn = -1; errorLexeme = null;
+                 RESULT = new Fragment(Fragment.STATEMENT,
+                              "for (" + init + "; " + cond + "; " + update + ") {\n"
+                              + indent(joinFragmentsAsBody(s)) + "}");
+             :}
+           /* Error: bloque for sin cerrar */
+           | FOR:f LEFT_PAREN for_init:init SEMICOLON expression:cond SEMICOLON for_update:update RIGHT_PAREN
+             for_block_open statement_list:s error:e
+             {:
+                 BlockContext ctx = currentBlock();
+                 exitBlock();
+                 if (ctx != null && ctx.line > 0) {
+                     errorLine = ctx.line; errorColumn = ctx.column; errorLexeme = "vuelta";
+                 }
+                 recoverErrorForced("Falta CUERPO (}) para cerrar el bloque vuelta (for)"
+                                    + " abierto en línea " + (ctx != null ? ctx.line : normalizeLine(fleft)));
+                 RESULT = new Fragment(Fragment.STATEMENT,
+                              "for (" + init + "; " + cond + "; " + update + ") {\n"
+                              + indent(joinFragmentsAsBody(s)) + "}");
+             :}
+           /* Error: estructura inválida en for */
            | FOR:f LEFT_PAREN error RIGHT_PAREN block:b
              {: savePos(fleft, fright, "vuelta");
                 recoverError("Estructura inválida en vuelta (for)");
@@ -950,7 +1262,7 @@ for_stmt ::= FOR LEFT_PAREN for_init:init SEMICOLON expression:cond SEMICOLON fo
              {: savePos(fleft, fright, "vuelta");
                 recoverError("Falta RESPALDO ()) en la estructura de vuelta (for)");
                 RESULT = new Fragment(Fragment.STATEMENT,
-                  "for (" + init + "; " + cond + "; " + update + ") " + b); :}
+                             "for (" + init + "; " + cond + "; " + update + ") " + b); :}
            ;
 
 for_init ::= type:t IDENTIFIER:id ASSIGN expression:e {: RESULT = cppType(t) + " " + id + " = " + e; :}
@@ -996,7 +1308,7 @@ case_clause ::= CASE expression:e COLON statement_list:s
               ;
 
 /* ══════════════════════════════════════════════════════════════════
-   TRY / CATCH — múltiples bloques catch
+   TRY / CATCH
    ══════════════════════════════════════════════════════════════════ */
 try_stmt ::= TRY block:tryBlk catch_list:catches
              {: StringBuilder sb = new StringBuilder("try " + tryBlk);
@@ -1095,7 +1407,7 @@ unary_expr ::= NOT       unary_expr:e {: RESULT = "(!" + e + ")"; :}
              | primary:p {: RESULT = p; :}
              ;
 
-lvalue ::= IDENTIFIER:id       {: RESULT = id; :}
+lvalue ::= IDENTIFIER:id          {: RESULT = id; :}
          | THIS DOT IDENTIFIER:id {: RESULT = "this->" + id; :}
          ;
 
@@ -1108,18 +1420,18 @@ array_access ::= IDENTIFIER:id LEFT_BRACKET expression:index RIGHT_BRACKET
                     RESULT = id + "[0]"; :}
                ;
 
-primary ::= literal:l             {: RESULT = l; :}
-          | IDENTIFIER:id         {: RESULT = id; :}
-          | array_access:a        {: RESULT = a; :}
-          | func_call:f           {: RESULT = f; :}
-          | new_expr:n            {: RESULT = n; :}
-          | THIS                  {: RESULT = "this"; :}
-          | THIS DOT IDENTIFIER:id   {: RESULT = "this->" + id; :}
-          | THIS DOT func_call:f     {: RESULT = "this->" + f; :}
-          | primary:p DOT IDENTIFIER:id {: RESULT = p + "." + id; :}
-          | primary:p DOT func_call:f   {: RESULT = p + "." + f; :}
-          | primary:p INCREMENT         {: RESULT = "(" + p + "++)"; :}
-          | primary:p DECREMENT         {: RESULT = "(" + p + "--)"; :}
+primary ::= literal:l                      {: RESULT = l; :}
+          | IDENTIFIER:id                  {: RESULT = id; :}
+          | array_access:a                 {: RESULT = a; :}
+          | func_call:f                    {: RESULT = f; :}
+          | new_expr:n                     {: RESULT = n; :}
+          | THIS                           {: RESULT = "this"; :}
+          | THIS DOT IDENTIFIER:id         {: RESULT = "this->" + id; :}
+          | THIS DOT func_call:f           {: RESULT = "this->" + f; :}
+          | primary:p DOT IDENTIFIER:id   {: RESULT = p + "." + id; :}
+          | primary:p DOT func_call:f     {: RESULT = p + "." + f; :}
+          | primary:p INCREMENT            {: RESULT = "(" + p + "++)"; :}
+          | primary:p DECREMENT            {: RESULT = "(" + p + "--)"; :}
           | LEFT_PAREN expression:e RIGHT_PAREN {: RESULT = "(" + e + ")"; :}
           | LEFT_PAREN expression:e error
             {:

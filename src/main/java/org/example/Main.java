@@ -13,6 +13,7 @@ import org.example.utils.FileManager;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 public class Main {
@@ -68,6 +69,8 @@ public class Main {
 
             List<Parser.SyntaxError> syntaxErrors =
                     parser != null ? parser.getSyntaxErrors() : new ArrayList<>();
+
+            syntaxErrors.sort(Comparator.comparing(Parser.SyntaxError::getLine));
 
             boolean hasSyntaxErrors = !syntaxErrors.isEmpty();
 
